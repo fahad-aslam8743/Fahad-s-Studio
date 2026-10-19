@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('irfan',Object.freeze({
  videoDecide:(id:string,approved:boolean)=>ipcRenderer.invoke('video:decide',{id,approved}),
  openExternal:(url:string)=>ipcRenderer.invoke('external:open',url),
  loadSettings:()=>ipcRenderer.invoke('settings:load'),
+ desktopDiagnostics:()=>ipcRenderer.invoke('diagnostics:desktop'),
  saveSettings:(apiUrl:string,token:string)=>ipcRenderer.invoke('settings:save',{apiUrl,token}),
  onVideoProgress:(handler:(detail:unknown)=>void)=>{const listener=(_event:Electron.IpcRendererEvent,detail:unknown)=>handler(detail);ipcRenderer.on('video:progress',listener);return ()=>ipcRenderer.removeListener('video:progress',listener)}
 }));
