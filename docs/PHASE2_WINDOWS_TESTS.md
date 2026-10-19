@@ -38,7 +38,7 @@ Windows actions run ONLY in Electron main via IPC (never from the Cloudflare Wor
 | screenshot | CONFIRM | Capture two monitors; inspect output in Pictures | May be black for secure/protected content |
 | clipboard_read | CONFIRM | Copy test text; approve; verify value | Clipboard could contain secrets, never auto-read |
 | clipboard_write | CONFIRM | Deny then approve a string; paste in Notepad | Existing clipboard overwritten |
-| ui_automation | BLOCKED | Any request must refuse without executing | Sidecar not added |
+| ui_automation | CONFIRM | With a normal app and an inspected AutomationId: deny once, then invoke a harmless button; test toggle and editable textbox; reject missing IDs/read-only controls | Native .NET UIAutomationClient; apps without accessible patterns will fail; elevated targets cannot be controlled unelevated |
 
 ## Known limitations / security and follow-up work
 - Phase 1's Cloudflare model does not yet emit native structured tool requests; no LLM-to-PC remote execution is wired. Manual Electron tool console works only on local desktop; do not promise conversational Windows control yet.
@@ -48,7 +48,7 @@ Windows actions run ONLY in Electron main via IPC (never from the Cloudflare Wor
 - The installation of applications is not supported. No admin-rights bypass, no arbitrary executable path, no arbitrary commands.
 - Wi-Fi adapter toggling usually needs admin; it will fail explicitly without privilege.
 - Volume uses Win32 multimedia key events; sleep uses a legacy Win32 command. Both may behave differently across machines.
-- Native UI Automation via C# using `System.Windows.Automation` and Win32 is preferable to Python initially, because adding pywinauto would introduce a Python runtime, packaging, and architecture overhead. We **will not add a Python sidecar without owner approval**. UIA should be a last-resort, high-risk tool and require per-action consent.
+- Native UI Automation via C# using `System.Windows.Automation` and Win32 is preferable to Python initially, because adding pywinauto would introduce a Python runtime, packaging, and architecture overhead. We uses an approved native .NET implementation with explicit PID, AutomationId and pattern, always confirmed; no Python sidecar. UIA is intentionally limited to Invoke, Toggle, and SetValue.
 - End-to-end LLM function calling, selecting apps by ambiguity, multi-monitor window moves and YouTube first-video playback remain incomplete.
 
 ## Verification
