@@ -27,6 +27,7 @@ export const videoEditSchema=z.object({input:file,output:file,steps:z.array(step
 export type LocalEdit=z.infer<typeof videoEditSchema>;
 export interface VideoEngine {
  readonly name:'local'|'fal';
+ execute(plan:LocalEdit,onProgress?:(p:{step:number;total:number;message:string})=>void):Promise<unknown>;
  render(plan:LocalEdit,onProgress?:(p:{step:number;total:number;message:string})=>void):Promise<{output:string}>;
 }
 function invoke(command:string,args:string[],timeoutMs=1200000){
@@ -52,6 +53,7 @@ function standard(o:string[]){return [...o,'-c:v','libx264','-preset','medium','
 export class LocalEngine implements VideoEngine{
  readonly name='local' as const;
  constructor(private readonly ffmpeg=process.env.IRFAN_FFMPEG_PATH||'ffmpeg',private readonly whisper=process.env.IRFAN_WHISPER_PATH||'whisper-cli'){}
+ async execute(plan:LocalEdit,onProgress?:(p:{step:number;total:number;message:string})=>void){return this.render(plan,onProgress)}
  async render(raw:LocalEdit,onProgress?:(p:{step:number;total:number;message:string})=>void){
   const plan=videoEditSchema.parse(raw);
   if(process.platform!=='win32')return {output:plan.output, mock:true} as {output:string};
