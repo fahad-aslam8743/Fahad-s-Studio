@@ -25,10 +25,10 @@ jobs:
       - run: pnpm --filter @irfan/ui build
       - run: pnpm --filter @irfan/desktop dist:win:release
         env:
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'true'
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
   android:
     if: ${{ vars.SIGNED_RELEASE_ENABLED == 'true' }}
     runs-on: ubuntu-latest
