@@ -2,6 +2,10 @@ import {contextBridge,ipcRenderer} from 'electron';
 contextBridge.exposeInMainWorld('irfan',Object.freeze({
  platform:process.platform,version:'0.2.0',
  listTools:()=>ipcRenderer.invoke('local:list-tools'),
+ checkUpdates:()=>ipcRenderer.invoke('updates:check'),
+ downloadUpdate:()=>ipcRenderer.invoke('updates:download'),
+ installUpdate:()=>ipcRenderer.invoke('updates:install'),
+ onUpdateStatus:(handler:(info:unknown)=>void)=>{const callback=(_event:Electron.IpcRendererEvent,info:unknown)=>handler(info);ipcRenderer.on('updates:status',callback);return ()=>ipcRenderer.removeListener('updates:status',callback)},
  listPolicies:()=>ipcRenderer.invoke('local:policies'),
  setPolicy:(name:string,risk:string)=>ipcRenderer.invoke('local:set-policy',{name,risk}),
  propose:(name:string,args:unknown)=>ipcRenderer.invoke('local:propose',{name,args}),
