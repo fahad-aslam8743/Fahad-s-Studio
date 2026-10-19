@@ -19,7 +19,7 @@ export default function Home(){
  const auth=()=>({Authorization:'Bearer '+token,'Content-Type':'application/json'});
  const request=async(route:string,init:RequestInit={})=>{
    if(isAndroid()){const verb=(init.method||'GET').toUpperCase();const body=typeof init.body==='string'&&init.body?JSON.parse(init.body):undefined;const result=await nativeCall('api',{route,verb,body});return result&&Array.isArray(result.items)?result.items:result}
-   const r=await fetch(apiUrl.replace(new RegExp('/+route,{...init,headers:{...auth(),...(init.headers||{})}});
+   const r=await fetch((apiUrl.endsWith('/')?apiUrl.slice(0,-1):apiUrl)+route,{...init,headers:{...auth(),...(init.headers||{})}});
    if(!r.ok)throw Error('API '+r.status+' '+await r.text());return r.json()
  };
  const reload=async()=>{try{setMemories(await request('/memories'));setError('')}catch(e){setError(String(e))}};
