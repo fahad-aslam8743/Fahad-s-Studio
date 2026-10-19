@@ -49,6 +49,7 @@ const filters={
  vivid:'eq=contrast=1.06:saturation=1.3'
 } as const;
 function filterPath(p:string){return p.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'").replace(/,/g,'\\,').replace(/\[/g,'\\[').replace(/\]/g,'\\]')}
+async function probe(fileName:string){const result=await invoke(process.env.IRFAN_FFPROBE_PATH||'ffprobe',['-v','error','-show_entries','stream=codec_type:format=duration','-of','json',fileName],12000);const info=JSON.parse(result);return {audio:info.streams?.some((s:{codec_type:string})=>s.codec_type==='audio')===true,duration:Number(info.format?.duration||0)};}
 function standard(o:string[]){return [...o,'-c:v','libx264','-preset','medium','-crf','21','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-movflags','+faststart']}
 export class LocalEngine implements VideoEngine{
  readonly name='local' as const;
@@ -68,6 +69,7 @@ export class LocalEngine implements VideoEngine{
     onProgress?.({step:i+1,total:plan.steps.length,message:'Rendering '+item.type});
     const args:string[]=['-hide_banner','-nostdin','-n'];
     const v=(filter:string)=>standard(['-i',current,'-vf',filter]);
+    const metadata=await probe(current);
     let cmdArgs:string[];
     switch(item.type){
      case 'trim':case 'cut':
@@ -75,11 +77,15 @@ export class LocalEngine implements VideoEngine{
       cmdArgs=standard(['-ss',String(item.start),'-i',current,'-t',String(item.end-item.start)]);break;
      case 'merge':{
       for(const f of item.files){if(!path.isAbsolute(f))throw Error('Merge files must be absolute');await fs.access(f)}
-      const inputs=[current,...item.files];
-      const segments=inputs.flatMap(f=>['-i',f]);
-      // Audio preservation requires matching audio streams. Video-only concat is deterministic.
-      const graph=inputs.map((_,index)=>'['+index+':v:0]').join('')+'concat=n='+inputs.length+':v=1:a=0[v]';
-      cmdArgs=standard([...segments,'-filter_complex',graph,'-map','[v]','-an']);break;
+      const inputs=[current,...item.files],tracks=await Promise.all(inputs.map(probe));
+      if(tracks.some(t=>t.duration<=0))throw Error('Cannot merge media without a measurable duration');
+      const segments=inputs.flatMap(f=>['-i',f]),parts:string[]=[];
+      for(let j=0;j<inputs.length;j++){
+       parts.push('['+j+':v:0]fps=30,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,setpts=PTS-STARTPTS[v'+j+']');
+       parts.push(tracks[j].audio?'['+j+':a:0]aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS[a'+j+']':'anullsrc=r=48000:cl=stereo,atrim=duration='+tracks[j].duration+',asetpts=PTS-STARTPTS[a'+j+']');
+      }
+      parts.push(inputs.map((_,j)=>'[v'+j+'][a'+j+']').join('')+'concat=n='+inputs.length+':v=1:a=1[v][a]');
+      cmdArgs=standard([...segments,'-filter_complex',parts.join(';'),'-map','[v]','-map','[a]']);break;
      }
      case 'crop':cmdArgs=v('crop='+item.width+':'+item.height);break;
      case 'resize':cmdArgs=v('scale='+item.width+':'+item.height+':flags=lanczos,setsar=1');break;
@@ -89,14 +95,14 @@ export class LocalEngine implements VideoEngine{
      }
      case 'speed':{
       const atempo=item.factor<.5?'atempo=0.5,atempo='+item.factor*2:item.factor>2?'atempo=2,atempo='+item.factor/2:'atempo='+item.factor;
-      cmdArgs=standard(['-i',current,'-filter:v','setpts=PTS/'+item.factor,'-filter:a',atempo]);break;
+      cmdArgs=standard(metadata.audio?['-i',current,'-filter:v','setpts=PTS/'+item.factor,'-filter:a',atempo]:['-i',current,'-filter:v','setpts=PTS/'+item.factor,'-an']);break;
      }
      case 'music':{
       if(!path.isAbsolute(item.file))throw Error('Music path must be absolute');await fs.access(item.file);
       // An input with audio mixes both; inputs without audio must add a silent track first.
-      cmdArgs=standard(['-i',current,'-stream_loop','-1','-i',item.file,'-filter_complex','[0:a]volume=1[a];[1:a]volume='+item.volume+'[m];[a][m]amix=inputs=2:duration=first[o]','-map','0:v:0','-map','[o]','-shortest']);break;
+      cmdArgs=metadata.audio?standard(['-i',current,'-stream_loop','-1','-i',item.file,'-filter_complex','[0:a]volume=1[a];[1:a]volume='+item.volume+'[m];[a][m]amix=inputs=2:duration=first[o]','-map','0:v:0','-map','[o]','-shortest']):standard(['-i',current,'-stream_loop','-1','-i',item.file,'-map','0:v:0','-map','1:a:0','-af','volume='+item.volume,'-shortest']);break;
      }
-     case 'normalize':cmdArgs=standard(['-i',current,'-af','loudnorm=I=-16:TP=-1.5:LRA=11']);break;
+     case 'normalize':if(!metadata.audio)throw Error('Cannot normalize audio: input video has no audio stream');cmdArgs=standard(['-i',current,'-af','loudnorm=I=-16:TP=-1.5:LRA=11']);break;
      case 'subtitles':{
       let srt=item.srt;
       if(item.autoWhisper){
@@ -117,7 +123,12 @@ export class LocalEngine implements VideoEngine{
      }
      case 'transition':{
       if(!path.isAbsolute(item.file))throw Error('Transition clip path must be absolute');await fs.access(item.file);
-      cmdArgs=standard(['-i',current,'-i',item.file,'-filter_complex','[0:v][1:v]xfade=transition=fade:duration='+item.duration+':offset='+item.offset+'[v]','-map','[v]','-an']);break;
+      const next=await probe(item.file);if(metadata.duration<=item.duration||next.duration<=item.duration)throw Error('Clips too short for transition');
+      const offset=metadata.duration-item.duration,videoFilter='fps=30,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p';
+      const chain=['[0:v]'+videoFilter+'[v0]','[1:v]'+videoFilter+'[v1]','[v0][v1]xfade=transition=fade:duration='+item.duration+':offset='+offset+'[v]'];
+      if(metadata.audio&&next.audio){chain.push('[0:a][1:a]acrossfade=d='+item.duration+':c1=tri:c2=tri[a]');cmdArgs=standard(['-i',current,'-i',item.file,'-filter_complex',chain.join(';'),'-map','[v]','-map','[a]']);}
+      else {cmdArgs=standard(['-i',current,'-i',item.file,'-filter_complex',chain.join(';'),'-map','[v]','-an']);}
+      break;
      }
      case 'filter':cmdArgs=v(filters[item.preset]);break;
      case 'export':{
