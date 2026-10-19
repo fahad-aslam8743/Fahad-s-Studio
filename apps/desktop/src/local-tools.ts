@@ -26,11 +26,12 @@ export const specs={
  screenshot:z.object({}),
  clipboard_read:z.object({}),
  clipboard_write:z.object({text:z.string().max(100000)}),
- ui_automation:z.object({pid:z.number().int().positive(),automationId:z.string().min(1).max(160),action:z.enum(['invoke','set_value','toggle']),value:z.string().max(1000).optional()})
+ ui_inspect:z.object({pid:z.number().int().positive(),limit:z.number().int().min(1).max(100).default(60)}),
+ ui_automation:z.object({pid:z.number().int().positive(),automationId:z.string().min(1).max(160),expectedName:z.string().max(300).optional(),action:z.enum(['invoke','set_value','toggle']),value:z.string().max(1000).optional()})
 } as const;
 export type Name=keyof typeof specs;
 export type Risk='SAFE'|'CONFIRM'|'BLOCKED';
-const confirm=new Set<Name>(['ui_automation','close_app','window_control','sleep_pc','system_radio','system_volume','screen_brightness','dark_mode','lock_screen','open_file','move_file','delete_file','clipboard_read','screenshot','clipboard_write']);
+const confirm=new Set<Name>(['ui_inspect','ui_automation','close_app','window_control','sleep_pc','system_radio','system_volume','screen_brightness','dark_mode','lock_screen','open_file','move_file','delete_file','clipboard_read','screenshot','clipboard_write']);
 export const definitions=(Object.keys(specs) as Name[]).map(name=>({
  name,description:descriptions[name],risk:(confirm.has(name)?'CONFIRM':'SAFE') as Risk,
  executor:'local' as const, inputSchema:toolInputSchemas[name],requiresAdmin:name==='system_radio'
@@ -45,7 +46,7 @@ const descriptions:Record<Name,string>={
  open_folder:'Open an existing directory',find_file:'Find files under a limited chosen directory',open_file:'Open an existing file',
  move_file:'Move a file with confirmation',delete_file:'Move file to Recycle Bin after confirmation',
  screenshot:'Capture desktop screenshot (requires consent)',clipboard_read:'Read system clipboard (requires consent)',
- clipboard_write:'Write system clipboard (requires consent)',ui_automation:'Last-resort native Windows UI Automation on an explicitly selected window/control; always confirm'
+ clipboard_write:'Write system clipboard (requires consent)',ui_inspect:'Inspect a visible Windows application control tree to identify AutomationId and name; requires consent',ui_automation:'Last-resort native Windows UI Automation on an explicitly selected window/control; always confirm'
 };
 export function runNative(name:Name,input:unknown):Promise<unknown>{
  const args=specs[name].parse(input);
