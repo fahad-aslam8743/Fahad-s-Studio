@@ -26,7 +26,7 @@ app.whenReady().then(()=>{
  });
  session.defaultSession.setPermissionRequestHandler((_wc,permission,cb)=>cb(permission==='media'));
  const credentialsFile=path.join(app.getPath('userData'),'credentials.enc');
- const encryptionReady=()=>safeStorage.isEncryptionAvailable()&&safeStorage.getSelectedStorageBackend()!=='basic_text';
+ const encryptionReady=()=>safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');
  ipcMain.handle('settings:load',async()=>{
   if(!encryptionReady())return {status:'unavailable'};
   try{const bytes=await fs.readFile(credentialsFile);const data=JSON.parse(safeStorage.decryptString(bytes));return {status:'loaded',apiUrl:data.apiUrl||'',token:data.token||''}}catch{return {status:'empty'}}
