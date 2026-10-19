@@ -46,7 +46,7 @@ export default function VideoPanel({request,engine,setEngine,native}:{request:Re
    <p>Free video editing runs on the Windows PC and always requires approval. FFmpeg commands use argument arrays, not shell strings.</p>
    <button className="btn" disabled={!native} onClick={()=>void tryIt(()=>prepareLocal('install'))}>Download/install FFmpeg through winget (confirm)</button>
    <label className="block">Describe your edit<textarea className="input block w-full" rows={3} value={editing} onChange={e=>setEditing(e.target.value)}/></label>
-   <button className="btn" disabled={busy} onClick={()=>void tryIt(async()=>{const r=await request('/video/edit-plan',{method:'POST',body:JSON.stringify({request:editing})});setEditPlan(JSON.stringify(r.plan,null,2))})}>Ask director for editing plan</button>
+   <button className="btn" disabled={busy} onClick={()=>void tryIt(async()=>{const old=JSON.parse(localPlan);const r=await request('/video/edit-plan',{method:'POST',body:JSON.stringify({request:editing,input:old.input,output:old.output})});setEditPlan(JSON.stringify(r.plan,null,2));if(r.plan?.input&&r.plan?.output&&Array.isArray(r.plan.steps)&&r.plan.steps.length)setLocalPlan(JSON.stringify({input:r.plan.input,output:r.plan.output,steps:r.plan.steps},null,2))})}>Ask director for editing plan</button>
    {editPlan&&<pre className="text-xs whitespace-pre-wrap max-h-48 overflow-auto">{editPlan}</pre>}
    <label className="block">Review FFmpeg plan (absolute file paths)<textarea className="input block w-full text-xs" rows={11} value={localPlan} onChange={e=>setLocalPlan(e.target.value)}/></label>
    <button className="btn" disabled={!native||busy} onClick={()=>void tryIt(()=>prepareLocal('render'))}>Review and render locally</button>
