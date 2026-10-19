@@ -1,0 +1,6 @@
+import {app,BrowserWindow,ipcMain,session} from 'electron';import path from 'node:path';import {pathToFileURL} from 'node:url';
+const dev=process.env.IRFAN_DEV==='1';
+interface LocalTool {name:string;risk:'SAFE'|'CONFIRM'|'BLOCKED';run(args:Record<string,unknown>):Promise<unknown>}
+function localTools():LocalTool[]{return []}
+function createWindow(){const window=new BrowserWindow({width:1440,height:900,minWidth:900,minHeight:650,backgroundColor:'#030815',title:"Irfan's Studio",webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',(event,url)=>{if(!dev&&!url.startsWith('file://'))event.preventDefault()});if(dev)void window.loadURL('http://localhost:3000');else void window.loadURL(pathToFileURL(path.join(process.resourcesPath,'ui','index.html')).toString());}
+app.whenReady().then(()=>{session.defaultSession.setPermissionRequestHandler((_wc,permission,cb)=>cb(permission==='media'));ipcMain.handle('local-tools',()=>localTools().map(({name,risk})=>({name,risk})));createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()})});app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
