@@ -33,9 +33,10 @@ class WakeWordService:Service(){
     val key=SecureStore(this).get("porcupine_key")
     if(key.isNullOrBlank()){stopSelf();return START_NOT_STICKY}
     try{
-      manager=PorcupineManager.Builder().setAccessKey(key)
-        .setKeyword(Porcupine.BuiltInKeyword.JARVIS)
-        .build(this,PorcupineManagerCallback { _ ->
+      val model=java.io.File(filesDir,"irfan_custom.ppn")
+      val builder=PorcupineManager.Builder().setAccessKey(key)
+      if(model.exists())builder.setKeywordPath(model.absolutePath) else builder.setKeyword(Porcupine.BuiltInKeyword.JARVIS)
+      manager=builder.build(this,PorcupineManagerCallback { _ ->
           MainActivity.foreground?.get()?.runOnUiThread{
             MainActivity.foreground?.get()?.speech(null)
           }
