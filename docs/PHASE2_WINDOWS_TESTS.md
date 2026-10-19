@@ -18,15 +18,15 @@ Windows actions run ONLY in Electron main via IPC (never from the Cloudflare Wor
 | open_app | SAFE | Open Notepad, Calculator and Chrome, ambiguous names | Fuzzy matching currently substring/prefix based, not full fuzzy distance |
 | list_running_apps | SAFE | Compare with Task Manager; expect only visible windows | Background tasks intentionally omitted |
 | close_app | CONFIRM | Open unsaved Notepad and request close; confirm Save prompt appears | No force kill |
-| window_control | SAFE (except close—confirmation should be added) | Minimize/maximize/restore/focus/snap each visible window | Foreground focus restrictions and DPI can cause failures |
-| window_control monitor_next | Unsupported | Expect explicit unsupported error | Multi-monitor Win32 migration pending native handling |
+| window_control | CONFIRM | Minimize/maximize/restore/focus/snap each visible window | Foreground focus restrictions and DPI can cause failures |
+| window_control monitor_next | CONFIRM | Move test window between two monitors | Depends on monitor configuration, scaling and per-app placement restrictions |
 | window_control minimize_all | SAFE | Minimize all and restore manually | Shell behavior |
 | open_website | SAFE | HTTPS site opens in default browser; file/javascript schemes rejected | URL schema restricts scheme |
 | youtube_search | SAFE | Search cats and confirm browser results | Play-first not implemented: no YouTube API, no fake autoplay |
-| system_volume | SAFE | Up/down/mute then inspect system tray | Simulated multimedia keys can be flaky |
-| screen_brightness | SAFE | Change built-in laptop panel brightness | External monitors typically unsupported |
+| system_volume | CONFIRM | Up/down/mute then inspect system tray | Simulated multimedia keys can be flaky |
+| screen_brightness | CONFIRM | Change built-in laptop panel brightness | External monitors typically unsupported |
 | system_radio Wi-Fi | CONFIRM | On test PC with admin permissions toggle off then back on | Requires elevation in many configurations; no silent elevation attempted |
-| system_radio Bluetooth/airplane | CONFIRM | Confirm descriptive unsupported error | Hardware-specific WinRT radio APIs deferred |
+| system_radio Bluetooth/airplane | CONFIRM | Confirm corresponding Windows Settings panel opens for manual control | Native WinRT radio control deferred |
 | dark_mode | CONFIRM | Toggle dark then light; inspect Settings and app theme | No admin; per-user; some apps need restart |
 | lock_screen | SAFE | Lock desktop; unlock with user credentials | No admin |
 | sleep_pc | CONFIRM | Save work, issue sleep, verify wake | Hibernate/power settings may change outcome |
@@ -42,12 +42,12 @@ Windows actions run ONLY in Electron main via IPC (never from the Cloudflare Wor
 
 ## Known limitations / security and follow-up work
 - Phase 1's Cloudflare model does not yet emit native structured tool requests; no LLM-to-PC remote execution is wired. Manual Electron tool console works only on local desktop; do not promise conversational Windows control yet.
-- `window_control` close is currently under a SAFE group; should be upgraded to CONFIRM before production.
-- Tool schemas are exported as simplified JSON descriptions to renderer; Zod parses full schemas at execution.
+- All window operations currently require confirmation, including close. Fine-grained SAFE actions can be separated after Windows acceptance tests.
+- Tool schemas include explicit JSON properties for planning; Zod parses complete schemas again at execution.
 - PowerShell helper is unsigned. Packaging and Windows PowerShell execution need real PC acceptance testing.
 - The installation of applications is not supported. No admin-rights bypass, no arbitrary executable path, no arbitrary commands.
 - Wi-Fi adapter toggling usually needs admin; it will fail explicitly without privilege.
-- Volume via keyboard events and sleep via legacy Win32 command may behave differently across machines.
+- Volume uses Win32 multimedia key events; sleep uses a legacy Win32 command. Both may behave differently across machines.
 - Native UI Automation via C# using `System.Windows.Automation` and Win32 is preferable to Python initially, because adding pywinauto would introduce a Python runtime, packaging, and architecture overhead. We **will not add a Python sidecar without owner approval**. UIA should be a last-resort, high-risk tool and require per-action consent.
 - End-to-end LLM function calling, selecting apps by ambiguity, multi-monitor window moves and YouTube first-video playback remain incomplete.
 
