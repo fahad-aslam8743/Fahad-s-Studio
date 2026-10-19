@@ -51,6 +51,12 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm --filter @irfan/ui build
+      - name: Validate Windows PowerShell script syntax
+        shell: pwsh
+        run: |
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path apps/desktop/scripts/tools.ps1),[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { throw ($errors | Out-String) }
       - name: Windows local tool smoke test
         shell: pwsh
         run: |
