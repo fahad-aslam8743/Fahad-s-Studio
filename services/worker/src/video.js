@@ -16,6 +16,8 @@ function choice(b){
  return {kind,model,input,estimate:Number((duration*model.usdPerSecond[resolution]).toFixed(4))};
 }
 export class FalEngine{
+ get name(){return 'fal'}
+ async execute(request){return this.submit(request.model,request.input)}
  constructor(env){if(!env.FAL_KEY)throw Error('FAL_KEY not configured; paid video engine disabled');this.env=env;this.client=createFalClient({credentials:env.FAL_KEY})}
  async submit(model,input){return this.client.queue.submit(model,{input})}
  async status(model,requestId){return this.client.queue.status(model,{requestId,logs:true})}
