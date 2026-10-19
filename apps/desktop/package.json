@@ -7,7 +7,8 @@
     "dev": "concurrently -k \"tsc -w -p tsconfig.json\" \"wait-on http://localhost:3000 dist/main.js && cross-env IRFAN_DEV=1 electron .\"",
     "build": "tsc -p tsconfig.json",
     "dist:win": "pnpm build && electron-builder --win nsis --publish never",
-    "dist:win:release": "pnpm build && electron-builder --win nsis --publish always"
+    "dist:win:release": "pnpm build && electron-builder --win nsis --publish always",
+    "verify:windows": "node scripts/verify-package.cjs"
   },
   "dependencies": {
     "zod": "^3.25.76",
@@ -23,7 +24,8 @@
     "electron-builder": "^26.0.12",
     "typescript": "^5.9.3",
     "wait-on": "^8.0.5",
-    "@types/qrcode": "^1.5.5"
+    "@types/qrcode": "^1.5.5",
+    "@electron/asar": "^3.4.1"
   },
   "build": {
     "appId": "com.irfan.studio",
