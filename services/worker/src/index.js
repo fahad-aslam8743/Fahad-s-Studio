@@ -5,6 +5,15 @@ const json=(data,status=200,origin='')=>new Response(JSON.stringify(data),{statu
 const allowed=(origin)=>!origin||origin==='irfan://studio'||origin==='http://localhost:3000'||origin==='http://127.0.0.1:3000';
 async function gemini(env,model,body){const resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify(body)});if(!resp.ok)throw new Error('AI provider returned '+resp.status);return resp.json();}
 async function db(env,table,method='GET',query='',body){const r=await fetch(env.SUPABASE_URL+'/rest/v1/'+table+query,{method,headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json',Prefer:'return=representation'},...(body===undefined?{}:{body:JSON.stringify(body)})});if(!r.ok)throw Error('Database unavailable ('+r.status+')');return r.json();}
+async function verifyDailyAiBudget(env,subject){
+ const configured=Number(env.GEMINI_DAILY_REQUEST_LIMIT??500);
+ if(!Number.isInteger(configured)||configured<1||configured>100000)throw Error('Invalid GEMINI_DAILY_REQUEST_LIMIT');
+ const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(subject));
+ const hash=Array.from(new Uint8Array(h)).map(x=>x.toString(16).padStart(2,'0')).join('');
+ const r=await fetch(env.SUPABASE_URL+'/rest/v1/rpc/jarvis_daily_ai_check',{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'content-type':'application/json'},body:JSON.stringify({p_subject:hash,p_limit:configured})});
+ if(!r.ok)throw Error('Daily AI request limit check unavailable ('+r.status+')');
+ return (await r.json())===true;
+}
 const personas={calm:'Speak calmly, clearly and precisely.',energetic:'Be energetic, friendly and focused.',romantic:'Be warm and poetic but respectful, never manipulative.'};
 function textOf(r){return (r.candidates||[]).flatMap(c=>(c.content?.parts||[]).map(p=>p.text||'')).join('');}
 export async function* streamGemini(env,model,body){
@@ -60,6 +69,8 @@ if(!owner&&!paired&&!isRedeem)return json({error:'Unauthorized'},401,origin);
 if(paired&&!/^\/(?:chat|tts|stt|personas|memories(?:\/|$)|email\/|video\/|youtube\/|devices(?:\/|$)|relay\/)/.test(url.pathname))return json({error:'Mobile session cannot access this endpoint'},403,origin);
 if(paired&&url.pathname.startsWith('/devices/pair'))return json({error:'Only the desktop owner can pair more devices'},403,origin);
 try{
+ const aiRoute=/^\/(?:chat|tts|stt|tools\/plan|video\/(?:director|edit-plan)|email\/unread-summary)$/.test(url.pathname);
+ if(aiRoute&&!(await verifyDailyAiBudget(env,'ai:'+String(paired?.id||'owner'))))return json({error:'Daily AI request limit reached. Please try again tomorrow.'},429,origin);
  const deviceResult=await handleDeviceRoute(request,env,url,owner,paired);
  if(deviceResult){const h=new Headers(deviceResult.headers);if(origin)h.set('access-control-allow-origin',origin);return new Response(deviceResult.body,{status:deviceResult.status,headers:h})}
  const e=await handleEmail(request,env,url.pathname,gemini,textOf);if(e){const headers=new Headers(e.headers);headers.set('access-control-allow-origin',origin||'irfan://studio');headers.set('vary','origin');return new Response(e.body,{status:e.status,headers});}const v=await handleVideo(request,env,url.pathname,gemini,textOf);if(v){const headers=new Headers(v.headers);headers.set('access-control-allow-origin',origin||'irfan://studio');headers.set('vary','origin');return new Response(v.body,{status:v.status,headers});}if(url.pathname==='/youtube/first'&&request.method==='GET'){
