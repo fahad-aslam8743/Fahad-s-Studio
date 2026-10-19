@@ -2,6 +2,14 @@ import {createFalClient} from '@fal-ai/client';
 import {VIDEO_MODELS,DIRECTOR_TEMPLATE} from './video-models.js';
 const out=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 async function persist(env,table,method='GET',query='',data){const r=await fetch(env.SUPABASE_URL+'/rest/v1/'+table+query,{method,headers:{Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,apikey:env.SUPABASE_SERVICE_ROLE_KEY,'content-type':'application/json',Prefer:'return=representation'},...(data===undefined?{}:{body:JSON.stringify(data)})});if(!r.ok)throw Error('Video history persistence failed ('+r.status+')');return r.json()}
+async function reserveDailyBudget(env,estimate){
+ const limit=Number(env.FAL_DAILY_LIMIT_USD??5);
+ if(!Number.isFinite(limit)||limit<0||limit>10000)throw Error('Invalid FAL_DAILY_LIMIT_USD');
+ const day=new Date().toISOString().slice(0,10);
+ const r=await fetch(env.SUPABASE_URL+'/rest/v1/rpc/reserve_jarvis_video_budget',{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'content-type':'application/json'},body:JSON.stringify({p_day:day,p_limit:limit,p_estimate:estimate})});
+ if(!r.ok)throw Error('Budget reservation failed ('+r.status+')');
+ return (await r.json())===true;
+}
 function choice(b){
  const kind=b.kind,model=VIDEO_MODELS[kind];if(!model)throw Error('Unsupported video type');
  if(typeof b.prompt!=='string'||!b.prompt.trim()||b.prompt.length>1400)throw Error('Prompt required (max 1400 characters)');
@@ -60,6 +68,8 @@ export async function handleVideo(request,env,path,gemini,textOf){
   const claimed=await persist(env,'jarvis_video_jobs','PATCH',q,{status:'submitting'});
   if(claimed.length!==1)return out({error:'Confirmation expired or already consumed'},409);
   const job=claimed[0];
+  const budgetOk=await reserveDailyBudget(env,Number(job.estimate_usd));
+  if(!budgetOk){await persist(env,'jarvis_video_jobs','PATCH','?id=eq.'+job.id,{status:'budget_rejected',result:null});return out({error:'Daily fal budget limit reached; no paid generation submitted'},403)}
   try{
    const client=new FalEngine(env);const result=await client.submit(job.model_id,job.result.input);
    await persist(env,'jarvis_video_jobs','PATCH','?id=eq.'+job.id,{status:'submitted',request_id:result.request_id,result:null});
@@ -71,13 +81,14 @@ export async function handleVideo(request,env,path,gemini,textOf){
   const id=url.searchParams.get('id');if(!/^[0-9a-f-]{36}$/i.test(id||''))return out({error:'Invalid ID'},400);
   const rows=await persist(env,'jarvis_video_jobs','GET','?id=eq.'+id+'&select=*&limit=1');if(!rows.length)return out({error:'Not found'},404);
   const job=rows[0];if(!job.request_id)return out({status:job.status,estimateUsd:job.estimate_usd,details:job.status==='failed'?job.result:null});
+  if(job.status==='completed')return out({status:'completed',id,videoUrl:job.result?.video?.url||null,result:job.result,estimateUsd:job.estimate_usd});
   const client=new FalEngine(env),state=await client.status(job.model_id,job.request_id);
   if(state.status==='COMPLETED'){
    const r=await client.result(job.model_id,job.request_id);
    await persist(env,'jarvis_video_jobs','PATCH','?id=eq.'+id,{status:'completed',result:r.data});
    return out({status:'completed',id,videoUrl:r.data?.video?.url||null,result:r.data,estimateUsd:job.estimate_usd})
   }
-  return out({status:state.status,id,logs:(state.logs||[]).slice(-20).map(x=>x.message),estimateUsd:job.estimate_usd})
+  return out({status:state.status,id,queuePosition:state.queue_position??null,logs:(state.logs||[]).slice(-20).map(x=>x.message),estimateUsd:job.estimate_usd})
  }
  if(path==='/video/history'&&method==='GET')return out(await persist(env,'jarvis_video_jobs','GET','?select=id,kind,model_id,status,estimate_usd,created_at&order=created_at.desc&limit=50'));
  return out({error:'Unknown video route'},404)
