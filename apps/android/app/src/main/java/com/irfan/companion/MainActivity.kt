@@ -123,11 +123,11 @@ class MainActivity: ComponentActivity() {
      setContentView(body)
      web.loadUrl("https://appassets.androidplatform.net/index.html")
  }
- fun approveTool(name:String,args:JSONObject,done:(JSONObject)->Unit){
+ fun approveTool(name:String,args:JSONObject,forceConfirm:Boolean=false,done:(JSONObject)->Unit){
    val risk=tools.risk(name)
    if(risk=="BLOCKED"){done(JSONObject().put("status","blocked"));return}
    fun run(){try{done(tools.run(name,args))}catch(e:Exception){done(JSONObject().put("status","error").put("reason",e.message?:"Unavailable"))}}
-   if(risk=="CONFIRM"){
+   if(forceConfirm||risk=="CONFIRM"){
      AlertDialog.Builder(this).setTitle("Approve Jarvis action: "+name)
        .setMessage(args.toString(2).take(1400)+"\n\nApprove this single action?")
        .setPositiveButton("Approve"){_,_->run()}
@@ -182,10 +182,10 @@ class MainActivity: ComponentActivity() {
          for(i in 0 until rows.length()){
            val task=rows.getJSONObject(i);val id=task.optString("id")
            if(!seen.add(id))continue
-           runOnUiThread{approveTool(task.optString("tool"),task.optJSONObject("args")?:JSONObject()){result->
+           runOnUiThread{approveTool(task.optString("tool"),task.optJSONObject("args")?:JSONObject(),true){result->
              work.execute{
                try{backend.call("/relay/complete","POST",JSONObject().put("id",id)
-                 .put("status",if(result.optString("status")=="completed"||result.optString("status")=="opened")"completed" else "rejected")
+                 .put("status",if(result.optString("status") in setOf("completed","opened","opened_settings","dialer_opened","sms_composer_opened","download_started"))"completed" else "rejected")
                  .put("detail",result.toString()))}catch(_:Exception){}
              }
            }}
