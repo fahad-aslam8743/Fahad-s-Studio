@@ -12,7 +12,7 @@ export function attachLocalAgent(){
  ipcMain.handle('local:propose',async(event,input:{name:Name;args:unknown})=>{
   const d=definitions.find(x=>x.name===input?.name);if(!d)throw Error('Unknown tool');
   const args=specs[input.name].parse(input.args);
-  if(d.risk==='BLOCKED')return {status:'blocked',reason:'UI automation requires explicit implementation approval'};
+  if(d.risk==='BLOCKED'){await log(input.name,args,'blocked',null);return {status:'blocked',reason:'UI automation requires explicit implementation approval'};}
   if(d.risk==='CONFIRM'){const id=randomUUID();pending.set(id,{name:input.name,args,sourceId:event.sender.id,expires:Date.now()+60000});await log(input.name,args,'pending',null);return {status:'confirmation_required',id,tool:input.name,args,expiresInSeconds:60};}
   return {status:'completed',result:await act(input.name,args)};
  });
