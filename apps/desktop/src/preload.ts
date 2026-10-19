@@ -1,6 +1,20 @@
 import {contextBridge,ipcRenderer} from 'electron';
 contextBridge.exposeInMainWorld('irfan',Object.freeze({
  platform:process.platform,version:'0.2.0',
+ whatsappStatus:()=>ipcRenderer.invoke('whatsapp:status'),
+ whatsappConnect:()=>ipcRenderer.invoke('whatsapp:connect'),
+ whatsappDisconnect:()=>ipcRenderer.invoke('whatsapp:disconnect'),
+ whatsappReconnect:()=>ipcRenderer.invoke('whatsapp:reconnect'),
+ whatsappLogout:()=>ipcRenderer.invoke('whatsapp:logout'),
+ whatsappChats:()=>ipcRenderer.invoke('whatsapp:chats'),
+ whatsappMessages:(chatId:string,limit=20)=>ipcRenderer.invoke('whatsapp:messages',{chatId,limit}),
+ whatsappPrepare:(to:string,body:string,quotedMessageId?:string)=>ipcRenderer.invoke('whatsapp:prepare',{to,body,quotedMessageId}),
+ whatsappDecide:(id:string,approved:boolean)=>ipcRenderer.invoke('whatsapp:decide',{id,approved}),
+ whatsappOnEvent:(handler:(event:unknown)=>void)=>{
+  const listener=(_event:Electron.IpcRendererEvent,payload:unknown)=>handler(payload);
+  ipcRenderer.on('whatsapp:event',listener);
+  return ()=>ipcRenderer.removeListener('whatsapp:event',listener);
+ },
  listTools:()=>ipcRenderer.invoke('local:list-tools'),
  checkUpdates:()=>ipcRenderer.invoke('updates:check'),
  downloadUpdate:()=>ipcRenderer.invoke('updates:download'),
