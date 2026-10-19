@@ -7,7 +7,7 @@ test('WhatsApp requires full message, exact recipient and no CR/LF in number',()
  assert.throws(()=>cleanDraft('Mom','hello'),/exact saved chat/i);
  assert.throws(()=>cleanDraft('92300\n1234567','hello'),/valid international/i);
  assert.throws(()=>cleanDraft('923001234567',''),/Message must contain/);
- assert.throws(()=>cleanDraft('923001234567','x'.repeat(4001)),/4.000 characters/);
+ assert.throws(()=>cleanDraft('923001234567','x'.repeat(4001)),/1.4000 characters/);
  assert.throws(()=>cleanChatId('https://evil.test'),/Invalid/);
 });
 test('send always requires separate one-time confirmation, tied to origin and expiry',()=>{
