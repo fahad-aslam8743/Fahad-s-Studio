@@ -1,5 +1,7 @@
-import {app,BrowserWindow,ipcMain,protocol,net,session} from 'electron';
+import {app,BrowserWindow,ipcMain,protocol,net,session,shell,safeStorage} from 'electron';
+import {attachLocalAgent} from './local-agent';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 const dev=process.env.IRFAN_DEV==='1';
 protocol.registerSchemesAsPrivileged([{scheme:'irfan',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
@@ -23,7 +25,22 @@ app.whenReady().then(()=>{
    return net.fetch(pathToFileURL(target).toString());
  });
  session.defaultSession.setPermissionRequestHandler((_wc,permission,cb)=>cb(permission==='media'));
- ipcMain.handle('local-tools',()=>localTools().map(({name,risk})=>({name,risk})));
+ const credentialsFile=path.join(app.getPath('userData'),'credentials.enc');
+ const encryptionReady=()=>safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');
+ ipcMain.handle('settings:load',async()=>{
+  if(!encryptionReady())return {status:'unavailable'};
+  try{const bytes=await fs.readFile(credentialsFile);const data=JSON.parse(safeStorage.decryptString(bytes));return {status:'loaded',apiUrl:data.apiUrl||'',token:data.token||''}}catch{return {status:'empty'}}
+ });
+ ipcMain.handle('settings:save',async(_event,{apiUrl,token}:{apiUrl:string;token:string})=>{
+  if(!encryptionReady())throw Error('OS-backed secure credential storage is unavailable; settings remain session-only');
+  if(typeof apiUrl!=='string'||apiUrl.length>300||!/^https:\/\//i.test(apiUrl)&&!/^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/i.test(apiUrl))throw Error('Backend URL must be HTTPS or local development');
+  if(typeof token!=='string'||token.length<32||token.length>1024)throw Error('Access token must be at least 32 characters');
+  await fs.mkdir(path.dirname(credentialsFile),{recursive:true});
+  await fs.writeFile(credentialsFile,safeStorage.encryptString(JSON.stringify({apiUrl,token})),{mode:0o600});
+  return {status:'saved'};
+ });
+ ipcMain.handle('external:open',async(_event,link:string)=>{const u=new URL(link);const isGoogle=u.protocol==='https:'&&u.hostname==='accounts.google.com';const isFal=u.protocol==='https:'&&(u.hostname==='fal.media'||u.hostname.endsWith('.fal.media'));if(!isGoogle&&!isFal)throw Error('External URL is not allowlisted');return shell.openExternal(u.toString())});
+ attachLocalAgent();
  createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()});
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
