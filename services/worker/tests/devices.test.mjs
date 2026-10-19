@@ -22,6 +22,7 @@ test('pairing code can be redeemed once only, revocation and remote tool scopes 
      pair.delete(k);return resp([v]);
    }
   }
+  if(table==='jarvis_devices'&&method==='GET')return resp(devices);
   if(table==='jarvis_devices'&&method==='POST'){const d={...data,id:'11111111-1111-4111-8111-111111111111'};devices.push(d);return resp([d])}
   if(table==='jarvis_remote_tasks'&&method==='POST'){const t={...data,id:'22222222-2222-4222-8222-222222222222'};tasks.push(t);return resp([t])}
   return resp([]);
@@ -43,5 +44,15 @@ test('pairing code can be redeemed once only, revocation and remote tool scopes 
   const allowed=await handleDeviceRoute(req('/relay/submit',{target:'pc',tool:'open_app',args:{name:'Notepad'}}),env,new URL('https://worker.test/relay/submit'),false,dev);
   assert.equal(allowed.status,202);assert.equal(tasks.length,1);
   assert.equal(tasks[0].tool,'open_app');
+  const listResponse=await handleDeviceRoute(new Request('https://worker.test/devices'),env,new URL('https://worker.test/devices'),true,null);
+  assert.equal(listResponse.status,200);
+  assert.equal((await listResponse.json()).length,1);
+  const hostile=await handleDeviceRoute(req('/relay/submit',{target:'pc',tool:'whatsapp_draft',args:{to:'abc',body:'hi'}}),env,new URL('https://worker.test/relay/submit'),false,dev);
+  assert.equal(hostile.status,400);
+  const prepared=await handleDeviceRoute(req('/relay/submit',{target:'pc',tool:'whatsapp_draft',args:{to:'923001234567',body:'Hello, user must approve on PC'}}),env,new URL('https://worker.test/relay/submit'),false,dev);
+  assert.equal(prepared.status,202);
+  assert.equal(tasks.length,2);
+  assert.equal(tasks[1].tool,'whatsapp_draft');
+
  }finally{globalThis.fetch=old}
 });
