@@ -32,7 +32,7 @@ export type Risk='SAFE'|'CONFIRM'|'BLOCKED';
 const confirm=new Set<Name>(['close_app','sleep_pc','system_radio','dark_mode','move_file','delete_file','clipboard_read','screenshot','clipboard_write']);
 export const definitions=(Object.keys(specs) as Name[]).map(name=>({
  name,description:descriptions[name],risk:(name==='ui_automation'?'BLOCKED':confirm.has(name)?'CONFIRM':'SAFE') as Risk,
- executor:'local' as const, inputSchema:specs[name].toJSON?.()??{type:'object'},requiresAdmin:false
+ executor:'local' as const, inputSchema:{type:'object',properties:{}},requiresAdmin:false
 }));
 const descriptions:Record<Name,string>={
  list_installed_apps:'Enumerate Start Menu application names and IDs',open_app:'Open an app using fuzzy name matching; return choices when ambiguous',
