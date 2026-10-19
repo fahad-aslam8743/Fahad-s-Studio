@@ -26,13 +26,13 @@ export const specs={
  screenshot:z.object({}),
  clipboard_read:z.object({}),
  clipboard_write:z.object({text:z.string().max(100000)}),
- ui_automation:z.object({operation:z.string()})
+ ui_automation:z.object({pid:z.number().int().positive(),automationId:z.string().min(1).max(160),action:z.enum(['invoke','set_value','toggle']),value:z.string().max(1000).optional()})
 } as const;
 export type Name=keyof typeof specs;
 export type Risk='SAFE'|'CONFIRM'|'BLOCKED';
-const confirm=new Set<Name>(['close_app','window_control','sleep_pc','system_radio','system_volume','screen_brightness','dark_mode','lock_screen','open_file','move_file','delete_file','clipboard_read','screenshot','clipboard_write']);
+const confirm=new Set<Name>(['ui_automation','close_app','window_control','sleep_pc','system_radio','system_volume','screen_brightness','dark_mode','lock_screen','open_file','move_file','delete_file','clipboard_read','screenshot','clipboard_write']);
 export const definitions=(Object.keys(specs) as Name[]).map(name=>({
- name,description:descriptions[name],risk:(name==='ui_automation'?'BLOCKED':confirm.has(name)?'CONFIRM':'SAFE') as Risk,
+ name,description:descriptions[name],risk:(confirm.has(name)?'CONFIRM':'SAFE') as Risk,
  executor:'local' as const, inputSchema:toolInputSchemas[name],requiresAdmin:name==='system_radio'
 }));
 const descriptions:Record<Name,string>={
@@ -45,12 +45,12 @@ const descriptions:Record<Name,string>={
  open_folder:'Open an existing directory',find_file:'Find files under a limited chosen directory',open_file:'Open an existing file',
  move_file:'Move a file with confirmation',delete_file:'Move file to Recycle Bin after confirmation',
  screenshot:'Capture desktop screenshot (requires consent)',clipboard_read:'Read system clipboard (requires consent)',
- clipboard_write:'Write system clipboard (requires consent)',ui_automation:'BLOCKED pending approval for native UI Automation implementation'
+ clipboard_write:'Write system clipboard (requires consent)',ui_automation:'Last-resort native Windows UI Automation on an explicitly selected window/control; always confirm'
 };
 export function runNative(name:Name,input:unknown):Promise<unknown>{
  const args=specs[name].parse(input);
  const def=definitions.find(d=>d.name===name)!;
- if(def.risk==='BLOCKED')return Promise.reject(new Error('UI automation is not approved for this phase'));
+
  if(process.platform!=='win32')return Promise.resolve({mock:true,platform:process.platform,tool:name,args,message:'Windows-only tool. No device action taken.'});
  const script=app.isPackaged?path.join(process.resourcesPath,'scripts','tools.ps1'):path.join(__dirname,'../scripts/tools.ps1');
  return new Promise((resolve,reject)=>{
