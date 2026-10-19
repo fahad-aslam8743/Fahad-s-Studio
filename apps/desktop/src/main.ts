@@ -1,6 +1,7 @@
 import {autoUpdater} from 'electron-updater';
 import {app,BrowserWindow,ipcMain,protocol,net,session,shell,safeStorage} from 'electron';
 import {attachLocalAgent} from './local-agent';
+import {attachWhatsApp} from './whatsapp';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
@@ -62,6 +63,7 @@ app.whenReady().then(()=>{
  });
  ipcMain.handle('external:open',async(_event,link:string)=>{const u=new URL(link);const isGoogle=u.protocol==='https:'&&u.hostname==='accounts.google.com';const isFal=u.protocol==='https:'&&(u.hostname==='fal.media'||u.hostname.endsWith('.fal.media'));if(!isGoogle&&!isFal)throw Error('External URL is not allowlisted');return shell.openExternal(u.toString())});
  attachLocalAgent();
+ attachWhatsApp();
  createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()});
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
