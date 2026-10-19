@@ -25,7 +25,7 @@ const safe={pc:new Set(['open_app','open_website','list_running_apps','window_co
 const isUuid=v=>/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(v||'');
 export async function handleDeviceRoute(request,env,url,master,device){
  const path=url.pathname,method=request.method;
- if(!path.startsWith('/devices/')&&!path.startsWith('/relay/'))return null;
+ if(path!=='/devices'&&!path.startsWith('/devices/')&&!path.startsWith('/relay/'))return null;
  const rateKey=await hashToken((device?.id|| (master?'owner':request.headers.get('cf-connecting-ip')||'unknown'))+':'+path);
  const rateLimit=path==='/devices/redeem'?6:120;
  if(await rpc(env,'jarvis_rate_check',{p_subject:rateKey,p_limit:rateLimit})!==true)return json({error:'Too many requests. Try again shortly.'},429);
