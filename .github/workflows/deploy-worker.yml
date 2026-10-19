@@ -1,0 +1,26 @@
+name: Deploy Irfan's Studio API
+on:
+  push:
+    branches: [phase-1-foundation, main]
+    paths:
+      - "services/worker/**"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deploy Cloudflare Worker
+        run: npx --yes wrangler@4 deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "54be6cc8b4c78a417dc4eecb3cd4fc56"
