@@ -1,4 +1,4 @@
-import {app,BrowserWindow,ipcMain,protocol,net,session} from 'electron';
+import {app,BrowserWindow,ipcMain,protocol,net,session,shell} from 'electron';
 import {attachLocalAgent} from './local-agent';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -24,6 +24,7 @@ app.whenReady().then(()=>{
    return net.fetch(pathToFileURL(target).toString());
  });
  session.defaultSession.setPermissionRequestHandler((_wc,permission,cb)=>cb(permission==='media'));
+ ipcMain.handle('external:open',async(_event,link:string)=>{const u=new URL(link);const isGoogle=u.protocol==='https:'&&u.hostname==='accounts.google.com';const isFal=u.protocol==='https:'&&(u.hostname==='fal.media'||u.hostname.endsWith('.fal.media'));if(!isGoogle&&!isFal)throw Error('External URL is not allowlisted');return shell.openExternal(u.toString())});
  attachLocalAgent();
  createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()});
 });
