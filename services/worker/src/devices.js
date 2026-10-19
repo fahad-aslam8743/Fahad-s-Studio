@@ -88,7 +88,7 @@ export async function handleDeviceRoute(request,env,url,master,device){
  if(path==='/relay/status'&&method==='GET'){
   const id=url.searchParams.get('id');
   if(!isUuid(id))return json({error:'Invalid task'},400);
-  const rows=await db(env,'jarvis_remote_tasks','GET','?id=eq.'+id+'&select=id,status,result,expires_at&limit=1');
+  const rows=await db(env,'jarvis_remote_tasks','GET','?id=eq.'+id+(device?'&source_device=eq.'+device.id:'')+'&select=id,status,result,expires_at&limit=1');
   if(!rows.length)return json({error:'Not found'},404);
   return json(rows[0]);
  }
