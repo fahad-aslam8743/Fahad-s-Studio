@@ -3,7 +3,7 @@ import {useEffect,useState} from 'react';
 import {nativeCall} from '../lib/android';
 type Req=(url:string,options?:RequestInit)=>Promise<any>;
 type Native={videoPropose:(kind:string,plan?:unknown)=>Promise<any>;videoDecide:(id:string,approved:boolean)=>Promise<any>;openExternal:(url:string)=>Promise<void>;onVideoProgress?:(listener:(detail:any)=>void)=>(()=>void)};
-export default function VideoPanel({request,engine,setEngine,native}:{request:Req;engine:'local'|'fal';setEngine:(x:'local'|'fal')=>void;native?:Native;mobile?:boolean}){
+export default function VideoPanel({request,engine,setEngine,native,mobile=false}:{request:Req;engine:'local'|'fal';setEngine:(x:'local'|'fal')=>void;native?:Native;mobile?:boolean}){
  const [idea,setIdea]=useState('A car chase at night'),[prompt,setPrompt]=useState(''),[negative,setNegative]=useState(''),[director,setDirector]=useState<any>(null);
  const [kind,setKind]=useState<'text'|'image'>('text'),[image,setImage]=useState(''),[duration,setDuration]=useState(5),[resolution,setResolution]=useState('720p'),[aspect,setAspect]=useState('16:9');
  const [paid,setPaid]=useState<any>(null),[local,setLocal]=useState<any>(null),[job,setJob]=useState<any>(null),[status,setStatus]=useState<any>(null);
