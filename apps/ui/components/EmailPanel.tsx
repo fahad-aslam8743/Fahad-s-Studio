@@ -4,7 +4,7 @@ type Req=(route:string,init?:RequestInit)=>Promise<any>;
 type Email={id:string;threadId:string;headers:Record<string,string>;body:string;snippet:string};
 export default function EmailPanel({request,openExternal,onSpeak}:{request:Req;openExternal:(url:string)=>void;onSpeak:(s:string)=>void}){
  const [account,setAccount]=useState<{connected:boolean;email:string|null}>({connected:false,email:null});
- const [emails,setEmails]=useState<Email[]>([]),[selected,setSelected]=useState<Email|null>(null);
+ const [emails,setEmails]=useState<Email[]>([]),[selected,setSelected]=useState<Email|null>(null),[thread,setThread]=useState<Email[]>([]);
  const [query,setQuery]=useState(''),[to,setTo]=useState(''),[subject,setSubject]=useState(''),[body,setBody]=useState('');
  const [pending,setPending]=useState<any>(null),[status,setStatus]=useState(''),[loading,setLoading]=useState(false);
  async function perform(fn:()=>Promise<void>){setLoading(true);try{await fn();setStatus('')}catch(e){setStatus(String(e))}finally{setLoading(false)}}
@@ -28,10 +28,10 @@ export default function EmailPanel({request,openExternal,onSpeak}:{request:Req;o
   </form>
   <div className="grid lg:grid-cols-[1fr_1fr] gap-4">
    <div className="max-h-72 overflow-y-auto space-y-2">
-    {emails.map(m=><button key={m.id} className="block w-full text-left p-3 border border-cyan-900 rounded" onClick={()=>{setSelected(m);setTo(m.headers.from||'');setSubject(m.headers.subject||'');setBody('')}}><strong>{m.headers.subject||'(no subject)'}</strong><p className="text-xs">{m.headers.from}</p><p className="text-xs">{m.snippet}</p></button>)}
+    {emails.map(m=><button key={m.id} className="block w-full text-left p-3 border border-cyan-900 rounded" onClick={()=>{setSelected(m);setThread([]);setTo(m.headers.from||'');setSubject(m.headers.subject||'');setBody('')}}><strong>{m.headers.subject||'(no subject)'}</strong><p className="text-xs">{m.headers.from}</p><p className="text-xs">{m.snippet}</p></button>)}
    </div>
    <div className="border border-cyan-900 rounded p-3 whitespace-pre-wrap break-words max-h-72 overflow-auto">
-    {selected?<><h3>{selected.headers.subject}</h3><p className="text-xs">{selected.headers.from}</p><p className="mt-3">{selected.body||selected.snippet}</p><button className="btn mt-3" onClick={()=>onSpeak(selected.body||selected.snippet)}>Read in full</button><button className="btn ml-2" onClick={()=>void perform(()=>prepare('trash'))}>Move to Trash…</button></>:<p>Select an email to read.</p>}
+    {selected?<><h3>{selected.headers.subject}</h3><p className="text-xs">{selected.headers.from}</p><p className="mt-3">{selected.body||selected.snippet}</p><button className="btn mt-3" onClick={()=>onSpeak(selected.body||selected.snippet)}>Read in full</button><button className="btn ml-2" onClick={()=>void perform(async()=>{const r=await request('/email/thread/'+encodeURIComponent(selected.threadId));setThread(r.messages||[])})}>Read full thread</button><button className="btn ml-2" onClick={()=>void perform(()=>prepare('trash'))}>Move to Trash…</button>{thread.length>0&&<div className="mt-4 border-t border-cyan-900 pt-3 space-y-3">{thread.map(m=><div className="border-b border-cyan-900 pb-2" key={m.id}><p className="text-cyan-300 text-xs">{m.headers.from} — {m.headers.date}</p><p className="whitespace-pre-wrap">{m.body||m.snippet}</p></div>)}</div>}</>:<p>Select an email to read.</p>}
    </div>
   </div>
   <h3 className="text-cyan-300">Compose / reply</h3>
