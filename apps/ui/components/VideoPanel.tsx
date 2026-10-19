@@ -1,8 +1,9 @@
 'use client';
 import {useEffect,useState} from 'react';
+import {nativeCall} from '../lib/android';
 type Req=(url:string,options?:RequestInit)=>Promise<any>;
 type Native={videoPropose:(kind:string,plan?:unknown)=>Promise<any>;videoDecide:(id:string,approved:boolean)=>Promise<any>;openExternal:(url:string)=>Promise<void>;onVideoProgress?:(listener:(detail:any)=>void)=>(()=>void)};
-export default function VideoPanel({request,engine,setEngine,native}:{request:Req;engine:'local'|'fal';setEngine:(x:'local'|'fal')=>void;native?:Native}){
+export default function VideoPanel({request,engine,setEngine,native}:{request:Req;engine:'local'|'fal';setEngine:(x:'local'|'fal')=>void;native?:Native;mobile?:boolean}){
  const [idea,setIdea]=useState('A car chase at night'),[prompt,setPrompt]=useState(''),[negative,setNegative]=useState(''),[director,setDirector]=useState<any>(null);
  const [kind,setKind]=useState<'text'|'image'>('text'),[image,setImage]=useState(''),[duration,setDuration]=useState(5),[resolution,setResolution]=useState('720p'),[aspect,setAspect]=useState('16:9');
  const [paid,setPaid]=useState<any>(null),[local,setLocal]=useState<any>(null),[job,setJob]=useState<any>(null),[status,setStatus]=useState<any>(null);
@@ -43,15 +44,15 @@ export default function VideoPanel({request,engine,setEngine,native}:{request:Re
    </div>}
    {job?.id&&<><p>Job: {job.id} ({job.status})</p><button className="btn" disabled={busy} onClick={()=>void tryIt(refresh)}>Refresh now</button><p className="text-xs">Automatic queue polling every 5 seconds until complete</p></>}
    {status?.logs&&<pre className="text-xs whitespace-pre-wrap">{status.logs.join('\n')}</pre>}
-   {status?.videoUrl&&<><video src={status.videoUrl} controls preload="metadata" className="max-w-full"/><button className="btn" onClick={()=>void native?.openExternal(status.videoUrl)}>Download / open video in browser</button></>}
+   {status?.videoUrl&&<><video src={status.videoUrl} controls preload="metadata" className="max-w-full"/><button className="btn" onClick={()=>void (mobile?nativeCall('tools.run',{name:'video_download',args:{url:status.videoUrl}}):native?.openExternal(status.videoUrl))}>Download / open video</button></>}
   </div>:<div className="space-y-3">
-   <p>Free video editing runs on the Windows PC and always requires approval. FFmpeg commands use argument arrays, not shell strings.</p>
-   <button className="btn" disabled={!native} onClick={()=>void tryIt(()=>prepareLocal('install'))}>Download/install FFmpeg through winget (confirm)</button>
+   <p>{mobile?"Heavy editing runs on your paired Windows PC, never on the phone. The PC must approve the plan.":"Free video editing runs on the Windows PC and always requires approval. FFmpeg commands use argument arrays, not shell strings."}</p>
+   {!mobile&&<button className="btn" disabled={!native} onClick={()=>void tryIt(()=>prepareLocal('install'))}>Download/install FFmpeg through winget (confirm)</button>}
    <label className="block">Describe your edit<textarea className="input block w-full" rows={3} value={editing} onChange={e=>setEditing(e.target.value)}/></label>
    <button className="btn" disabled={busy} onClick={()=>void tryIt(async()=>{const old=JSON.parse(localPlan);const r=await request('/video/edit-plan',{method:'POST',body:JSON.stringify({request:editing,input:old.input,output:old.output})});setEditPlan(JSON.stringify(r.plan,null,2));if(r.plan?.input&&r.plan?.output&&Array.isArray(r.plan.steps)&&r.plan.steps.length)setLocalPlan(JSON.stringify({input:r.plan.input,output:r.plan.output,steps:r.plan.steps},null,2))})}>Ask director for editing plan</button>
    {editPlan&&<pre className="text-xs whitespace-pre-wrap max-h-48 overflow-auto">{editPlan}</pre>}
    <label className="block">Review FFmpeg plan (absolute file paths)<textarea className="input block w-full text-xs" rows={11} value={localPlan} onChange={e=>setLocalPlan(e.target.value)}/></label>
-   <button className="btn" disabled={!native||busy} onClick={()=>void tryIt(()=>prepareLocal('render'))}>Review and render locally</button>
+   {mobile?<button className="btn" disabled={busy} onClick={()=>void tryIt(async()=>setStatus(await request('/relay/submit',{method:'POST',body:JSON.stringify({target:'pc',tool:'video_render',args:{plan:JSON.parse(localPlan)}})})))}>Send approved plan to paired PC</button>:<button className="btn" disabled={!native||busy} onClick={()=>void tryIt(()=>prepareLocal('render'))}>Review and render locally</button>}
    {local&&<div role="alertdialog" className="border-2 border-orange-400 p-4 space-y-2"><h3>CONFIRM {local.kind}</h3><pre className="text-xs whitespace-pre-wrap">{JSON.stringify(local.preview,null,2)}</pre><button className="btn" onClick={()=>void tryIt(()=>approveLocal(true))}>Approve</button><button className="btn ml-2" onClick={()=>void tryIt(()=>approveLocal(false))}>Cancel</button></div>}
   </div>}
   {localProgress&&<p role="status" className="text-cyan-300">Local render: step {localProgress.step} of {localProgress.total} — {localProgress.message}</p>}
