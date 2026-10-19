@@ -133,6 +133,37 @@ public class NativeWindows {
    'clipboard_read' {Add-Type -AssemblyName System.Windows.Forms;Out @{text=[System.Windows.Forms.Clipboard]::GetText()}}
    'clipboard_write' {Set-Clipboard -Value ([string]$a.text);Out @{written=$true}}
    'screenshot' {Add-Type -AssemblyName System.Windows.Forms;Add-Type -AssemblyName System.Drawing;$rect=[System.Windows.Forms.SystemInformation]::VirtualScreen;$bmp=New-Object System.Drawing.Bitmap($rect.Width,$rect.Height);$g=[System.Drawing.Graphics]::FromImage($bmp);$g.CopyFromScreen($rect.Left,$rect.Top,0,0,$bmp.Size);$file=Join-Path ([Environment]::GetFolderPath('MyPictures')) ('Jarvis-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'.png');$bmp.Save($file);$g.Dispose();$bmp.Dispose();Out @{path=$file}}
+   'ui_inspect' {
+      Add-Type -AssemblyName UIAutomationClient
+      Add-Type -AssemblyName UIAutomationTypes
+      $proc=Get-Process -Id ([int]$a.pid) -ErrorAction Stop
+      if($proc.MainWindowHandle -eq 0){throw 'Target process has no accessible main window'}
+      $root=[System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+      if($null -eq $root){throw 'Target window is inaccessible'}
+      $limit=[Math]::Min(100,[Math]::Max(1,[int]$a.limit));if(-not $a.limit){$limit=60}
+      $found=New-Object 'System.Collections.ArrayList'
+      $queue=New-Object 'System.Collections.Queue'
+      $queue.Enqueue(@{element=$root;depth=0})
+      $scanned=0
+      while($queue.Count -gt 0 -and $found.Count -lt $limit -and $scanned -lt 500){
+        $next=$queue.Dequeue()
+        $scanned++
+        if($next.depth -ge 6){continue}
+        try{$children=$next.element.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)}catch{continue}
+        foreach($control in $children){
+          if($found.Count -ge $limit){break}
+          try{
+            $cur=$control.Current
+            $controlId=[string]$cur.AutomationId
+            $display=[string]$cur.Name
+            $ctype=[string]$cur.ControlType.ProgrammaticName
+            if($controlId){[void]$found.Add(@{automationId=$controlId;name=$display.Substring(0,[Math]::Min(160,$display.Length));controlType=$ctype;enabled=[bool]$cur.IsEnabled})}
+            if($next.depth -lt 5){$queue.Enqueue(@{element=$control;depth=$next.depth+1})}
+          }catch{}
+        }
+      }
+      Out @{pid=$proc.Id;controls=@($found.ToArray());truncated=($found.Count -ge $limit -or $queue.Count -gt 0)}
+   }
    'ui_automation' {
       Add-Type -AssemblyName UIAutomationClient
       Add-Type -AssemblyName UIAutomationTypes
@@ -143,6 +174,7 @@ public class NativeWindows {
       $condition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty,[string]$a.automationId)
       $target=$root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
       if($null -eq $target){throw 'AutomationId not found in selected window'}
+      if($a.expectedName -and [string]$target.Current.Name -cne [string]$a.expectedName){throw 'Control name changed; inspect again before clicking'}
       $patternId=switch([string]$a.action){
         'invoke' {[System.Windows.Automation.InvokePattern]::Pattern}
         'toggle' {[System.Windows.Automation.TogglePattern]::Pattern}
