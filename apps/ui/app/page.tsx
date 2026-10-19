@@ -30,6 +30,12 @@ export default function Home(){
  const plan=await request('/tools/plan',{method:'POST',body:JSON.stringify({message,tools:toolList})});
  if(plan.action==='clarify'){setMessages([...history,{role:'user',content:message},{role:'assistant',content:plan.question}]);return}
  if(plan.action==='tool'){
+   if(plan.name==='youtube_search'&&plan.args?.mode==='first'){
+     const q=String(plan.args.query||'');
+     const video=await request('/youtube/first?q='+encodeURIComponent(q));
+     const opened=await window.irfan.propose('open_website',{url:video.url});
+     setMessages([...history,{role:'user',content:message},{role:'assistant',content:'Opening first YouTube result: '+(video.title||video.url)+'. '+JSON.stringify(opened.result??opened)}]);return;
+   }
    const result=await window.irfan.propose(plan.name,plan.args);
    if(result.status==='confirmation_required'){setPending({id:result.id,tool:result.tool,args:result.args});setMessages([...history,{role:'user',content:message},{role:'assistant',content:'Please approve or deny the '+result.tool+' action using the confirmation card.'}]);return}
    setMessages([...history,{role:'user',content:message},{role:'assistant',content:result.result?.status==='ambiguous'?'Several applications match. Please specify which one: '+result.result.choices.map((x:any)=>x.name).join(', '):JSON.stringify(result.result??result)}]);return;
