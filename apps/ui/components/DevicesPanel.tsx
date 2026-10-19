@@ -1,28 +1,13 @@
 'use client';
-import {useEffect,useRef,useState} from 'react';
+import {useEffect,useState} from 'react';
 type Api=(path:string,init?:RequestInit)=>Promise<any>;
 type Native={propose:(name:string,args:any)=>Promise<any>;decide:(id:string,approved:boolean)=>Promise<any>;videoPropose:(kind:string,plan?:unknown)=>Promise<any>;videoDecide:(id:string,approved:boolean)=>Promise<any>};
 export default function DevicesPanel({request,desktop}:{request:Api;desktop?:Native}){
  const [code,setCode]=useState(''),[devices,setDevices]=useState<Array<{id:string;label:string;platform:string;revoked_at?:string}>>([]);
  const [target,setTarget]=useState(''),[tool,setTool]=useState('open_app'),[args,setArgs]=useState('{"name":"Calculator"}');
- const [tasks,setTasks]=useState<Array<{id:string;tool:string;args:any}>>([]),[status,setStatus]=useState('');
- const outstanding=useRef(new Set<string>());
+ const [status,setStatus]=useState('');
  const load=async()=>{const items=await request('/devices');setDevices(items.filter((x:any)=>!x.revoked_at))};
- useEffect(()=>{if(!desktop)return;void load().catch(()=>{});let on=true;
-  const poll=async()=>{try{const incoming=await request('/relay/poll');if(on)setTasks(old=>[...old,...(incoming as any[]).filter(x=>!outstanding.current.has(x.id)&&!old.some(y=>y.id===x.id))])}catch(e){if(on)setStatus(String(e))}};
-  void poll();const id=setInterval(()=>void poll(),10000);return()=>{on=false;clearInterval(id)}
- },[desktop]);
- async function answer(task:{id:string;tool:string;args:any},approved:boolean){
-  outstanding.current.add(task.id);setTasks(old=>old.filter(x=>x.id!==task.id));
-  let state='rejected',detail='Denied by PC user';
-  if(approved){try{
-    const proposed=task.tool==='video_render'?await desktop!.videoPropose('render',task.args.plan):await desktop!.propose(task.tool,task.args);
-    const result=proposed.status==='confirmation_required'?(task.tool==='video_render'?await desktop!.videoDecide(proposed.id,true):await desktop!.decide(proposed.id,true)):proposed;
-    state=result.status==='completed'?'completed':'rejected';detail=JSON.stringify(result).slice(0,700)
-  }catch(e){state='failed';detail=String(e)}}
-  try{await request('/relay/complete',{method:'POST',body:JSON.stringify({id:task.id,status:state,detail})});setStatus('Task '+task.id+': '+state)}
-  catch(e){setStatus('Task update failed: '+String(e))}
- }
+ useEffect(()=>{if(desktop)void load().catch(()=>{})},[desktop]);
  if(!desktop)return <p>Pairing and incoming tasks are available in the Windows desktop app.</p>;
  return <div className="glass p-4 rounded-xl space-y-4"><h2 className="text-cyan-300 text-xl">PAIRED DEVICES & REMOTE CONTROL</h2>
   <p>Phone and PC share the same cloud memory and persona. Actions remain local to the target and require consent.</p>
@@ -37,14 +22,6 @@ export default function DevicesPanel({request,desktop}:{request:Api;desktop?:Nat
    <textarea className="input w-full text-xs" value={args} onChange={e=>setArgs(e.target.value)} rows={3}/>
    <button disabled={!target} className="btn" onClick={()=>void request('/relay/submit',{method:'POST',body:JSON.stringify({target,tool,args:JSON.parse(args)})}).then(r=>setStatus(JSON.stringify(r))).catch(e=>setStatus(String(e)))}>Queue on phone</button>
   </div>
-  {tasks.length>0&&<div className="space-y-2 border-t border-orange-500 pt-3">
-   <h3 className="font-bold text-orange-300">Incoming requests from Android</h3>
-   {tasks.map(task=><div role="alertdialog" className="p-3 border border-orange-400 space-y-2" key={task.id}>
-    <p><strong>{task.tool}</strong></p><pre className="text-xs whitespace-pre-wrap">{JSON.stringify(task.args,null,2)}</pre>
-    <button className="btn" onClick={()=>void answer(task,true)}>Approve on this PC</button>
-    <button className="btn ml-2" onClick={()=>void answer(task,false)}>Deny</button>
-   </div>)}
-  </div>}
   {status&&<p role="status" className="text-sm break-words">{status}</p>}
  </div>
 }
