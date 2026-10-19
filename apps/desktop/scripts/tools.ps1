@@ -32,7 +32,7 @@ public class NativeWindows {
     $apps=@(AppList);$q=([string]$a.name).ToLowerInvariant()
     $ranked=@($apps|ForEach-Object {$label=[string]$_.name;$lower=$label.ToLowerInvariant();$score=if($lower -eq $q){0}elseif($lower.StartsWith($q)){1}elseif($lower.Contains($q)){2}else{100};if($score -lt 100){@{name=$label;id=$_.id;score=$score}}}|Sort-Object score,name)
     if($a.selection){$chosen=$ranked|Where-Object {$_.id -eq $a.selection}|Select-Object -First 1}
-    elseif($ranked.Count -eq 1 -or ($ranked.Count -gt 0 -and $ranked[0].score -eq 0 -and $ranked[1].score -ne 0)){$chosen=$ranked[0]}
+    elseif($ranked.Count -eq 1 -or ($ranked.Count -gt 1 -and $ranked[0].score -eq 0 -and $ranked[1].score -ne 0)){$chosen=$ranked[0]}
     elseif($ranked.Count -gt 0){Out @{status='ambiguous';choices=@($ranked|Select-Object -First 8)}}
     else {Out @{status='not_found';query=$a.name}}
     $id=[string]$chosen.id
@@ -45,7 +45,7 @@ public class NativeWindows {
    'window_control' {
      if($a.action -eq 'minimize_all'){$shell=New-Object -ComObject Shell.Application;$shell.MinimizeAll();Out @{ok=$true}}
      $p=Get-Process -Id ([int]$a.pid);if($p.MainWindowHandle -eq 0){throw 'No visible top-level window for process'}
-     WinApi;$hwnd=$p.MainWindowHandle
+     Add-Type -AssemblyName System.Windows.Forms;WinApi;$hwnd=$p.MainWindowHandle
      switch($a.action){
       'minimize' {$ok=[NativeWindows]::ShowWindow($hwnd,6)}
       'maximize' {$ok=[NativeWindows]::ShowWindow($hwnd,3)}
