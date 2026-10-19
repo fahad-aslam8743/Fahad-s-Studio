@@ -5,6 +5,7 @@ type T={name:string;risk:string;minimum:string};
 export default function AndroidPanel({request}:{request:(path:string,init?:RequestInit)=>Promise<any>}){
  const [connected,setConnected]=useState(false),[code,setCode]=useState(''),[key,setKey]=useState(''),[tools,setTools]=useState<T[]>([]);
  const [action,setAction]=useState('open_app'),[args,setArgs]=useState('{"name":"Calculator"}'),[remote,setRemote]=useState('{"url":"https://example.com"}'),[remoteTool,setRemoteTool]=useState('open_website');
+ const [waNumber,setWaNumber]=useState(''),[waBody,setWaBody]=useState('');
  const [status,setStatus]=useState(''),[busy,setBusy]=useState(false);
  const reload=async()=>{const s=await nativeCall<{paired:boolean}>('session');setConnected(s.paired);const t=await nativeCall<{tools:T[]}>('tools.list');setTools(t.tools)};
  useEffect(()=>{void reload().catch(e=>setStatus(String(e)));const event=()=>{void reload()};window.addEventListener('irfan-paired',event);return()=>window.removeEventListener('irfan-paired',event)},[]);
@@ -39,6 +40,17 @@ export default function AndroidPanel({request}:{request:(path:string,init?:Reque
    <select className="input" value={remoteTool} onChange={e=>setRemoteTool(e.target.value)}>{['open_app','open_website','list_running_apps','window_control','lock_screen'].map(n=><option key={n}>{n}</option>)}</select>
    <textarea className="input w-full text-xs" rows={3} value={remote} onChange={e=>setRemote(e.target.value)}/>
    <button className="btn" disabled={!connected||busy} onClick={()=>void run(()=>request('/relay/submit',{method:'POST',body:JSON.stringify({target:'pc',tool:remoteTool,args:JSON.parse(remote)})}))}>Queue on PC (approval required)</button>
+  </div>
+  <div className="border-t border-cyan-900 pt-3 space-y-2">
+   <h3 className="text-cyan-300">WhatsApp through your paired PC</h3>
+   <p className="text-xs">Enter the recipient's international number. This queues a draft only — nothing is sent until someone approves the draft and its full body on Windows.</p>
+   <input className="input w-full" inputMode="tel" placeholder="e.g. 923001234567" value={waNumber} onChange={e=>setWaNumber(e.target.value)}/>
+   <textarea className="input w-full" rows={4} maxLength={4000} placeholder="WhatsApp message to prepare" value={waBody} onChange={e=>setWaBody(e.target.value)}/>
+   <button className="btn" disabled={!connected||busy||!waBody.trim()} onClick={()=>void run(async()=>{
+     const to=waNumber.replace(/[^0-9]/g,'');
+     if(!/^[1-9]\\d{6,15}$/.test(to)||waBody.length>4000)throw Error('Use a full international number and a message under 4000 characters');
+     return request('/relay/submit',{method:'POST',body:JSON.stringify({target:'pc',tool:'whatsapp_draft',args:{to,body:waBody}})});
+   })}>Queue WhatsApp draft for Windows review</button>
   </div>
   {status&&<pre role="status" className="text-xs whitespace-pre-wrap break-words max-h-48 overflow-y-auto">{status}</pre>}
  </section>
