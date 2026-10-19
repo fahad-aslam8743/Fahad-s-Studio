@@ -49,7 +49,7 @@
 - Whisper.cpp executable/model must be installed separately; large Whisper models are NOT bundled; some 2026 Windows binaries have reported path/BLAS issues. No assurance that every language transcribes cleanly.
 - Model response fields, endpoint parameter values, prices and video availability can change on fal.ai. The chosen Wan 2.6 model parameters have been checked but should be verified again before a paid release.
 - The queue uses polling; webhooks not enabled. A Worker interruption after queue submission but before persisting request_id can leave job in "submitting" (requires operator reconciliation). Existing daily cap is not a transactional hard ceiling.
-- DaVinci Resolve is NOT integrated. Scripting APIs, installation and Studio-vs-Free availability vary by edition/version and require separate evaluation; do not build without approval.
+- DaVinci Resolve is NOT integrated. In DaVinci Resolve 21.1 (September 2026), Python scripting was moved to the **paid Studio** edition and scripting support in Free is substantially reduced; automating the free edition from an external Jarvis agent is not reliably supported. We will not build a Resolve adapter unless the owner separately approves paid Studio dependency. Source: https://www.pugetsystems.com/blog/2026/09/10/how-davinci-resolve-free-v21-1-scripting-changes-affect-puget-bench/ .
 - The active production Worker still points at the earlier branch; Phase 4 code is on phase-3-4-email-video and remains subject to CI and Windows acceptance.
 
 ## Source
