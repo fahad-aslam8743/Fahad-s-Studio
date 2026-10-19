@@ -28,11 +28,14 @@ class SecureStore(private val context: Context) {
         val data = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
         prefs.edit().putString(name,Base64.encodeToString(data,Base64.NO_WRAP)).apply()
     }
-    fun get(name: String): String? = try {
-        val b = Base64.decode(prefs.getString(name,null) ?: return null, Base64.NO_WRAP)
-        val cipher=Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,b.copyOfRange(0,12)))
-        String(cipher.doFinal(b.copyOfRange(12,b.size)),Charsets.UTF_8)
-    } catch (_: Exception) { null }
+    fun get(name: String): String? {
+        val encrypted=prefs.getString(name,null) ?: return null
+        return try {
+            val b=Base64.decode(encrypted,Base64.NO_WRAP)
+            val cipher=Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,b.copyOfRange(0,12)))
+            String(cipher.doFinal(b.copyOfRange(12,b.size)),Charsets.UTF_8)
+        } catch (_: Exception) { null }
+    }
     fun remove(name: String) { prefs.edit().remove(name).apply() }
 }
