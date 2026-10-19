@@ -90,7 +90,7 @@ jobs:
           unzip -Z -1 "$APK" > /tmp/irfan-apk-entries.txt
           grep -Fqx 'assets/index.html' /tmp/irfan-apk-entries.txt
           grep -q '^assets/_next/' /tmp/irfan-apk-entries.txt
-          grep -q '^classes[0-9]*.dex
+          grep -Eq '^classes([0-9]+)?[.]dex$' /tmp/irfan-apk-entries.txt
       - uses: actions/upload-artifact@v4
         with:
           name: irfan-client-android-sideload-debug-apk
@@ -184,3 +184,4 @@ jobs:
           name: irfan-android-emulator-screenshot
           path: android-emulator-home.png
           if-no-files-found: ignore
+
