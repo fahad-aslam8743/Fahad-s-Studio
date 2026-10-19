@@ -296,12 +296,30 @@ export const toolInputSchemas = {
       },
       "value": {
         "type": "string"
+      },
+      "expectedName": {
+        "type": "string"
       }
     },
     "required": [
       "pid",
       "automationId",
       "action"
+    ],
+    "additionalProperties": false
+  },
+  "ui_inspect": {
+    "type": "object",
+    "properties": {
+      "pid": {
+        "type": "number"
+      },
+      "limit": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "pid"
     ],
     "additionalProperties": false
   }
