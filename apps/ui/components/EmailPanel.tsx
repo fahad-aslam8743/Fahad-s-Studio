@@ -7,7 +7,7 @@ export default function EmailPanel({request,openExternal,onSpeak}:{request:Req;o
  const [emails,setEmails]=useState<Email[]>([]),[selected,setSelected]=useState<Email|null>(null),[thread,setThread]=useState<Email[]>([]);
  const [query,setQuery]=useState(''),[to,setTo]=useState(''),[subject,setSubject]=useState(''),[body,setBody]=useState('');
  const [pending,setPending]=useState<any>(null),[status,setStatus]=useState(''),[loading,setLoading]=useState(false);
- async function perform(fn:()=>Promise<void>){setLoading(true);try{await fn();setStatus('')}catch(e){setStatus(String(e))}finally{setLoading(false)}}
+ async function perform(fn:()=>Promise<void>){setLoading(true);setStatus('');try{await fn()}catch(e){setStatus(String(e))}finally{setLoading(false)}}
  async function inbox(q?:string){const r=await request(q?'/email/search?q='+encodeURIComponent(q):'/email/inbox');setEmails(r.messages||[])}
  useEffect(()=>{void request('/email/status').then(setAccount).catch(e=>setStatus(String(e)))},[]);
  async function connect(){const x=await request('/email/connect',{method:'POST',body:'{}'});openExternal(x.url);setStatus('Authorize in your browser, then press Refresh connection.')}
