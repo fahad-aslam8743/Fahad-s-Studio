@@ -7,5 +7,7 @@ contextBridge.exposeInMainWorld('irfan',Object.freeze({
  videoPropose:(kind:string,plan?:unknown)=>ipcRenderer.invoke('video:propose',{kind,plan}),
  videoDecide:(id:string,approved:boolean)=>ipcRenderer.invoke('video:decide',{id,approved}),
  openExternal:(url:string)=>ipcRenderer.invoke('external:open',url),
+ loadSettings:()=>ipcRenderer.invoke('settings:load'),
+ saveSettings:(apiUrl:string,token:string)=>ipcRenderer.invoke('settings:save',{apiUrl,token}),
  onVideoProgress:(handler:(detail:unknown)=>void)=>{const listener=(_event:Electron.IpcRendererEvent,detail:unknown)=>handler(detail);ipcRenderer.on('video:progress',listener);return ()=>ipcRenderer.removeListener('video:progress',listener)}
 }));
