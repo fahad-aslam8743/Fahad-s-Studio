@@ -31,10 +31,23 @@ export const toolInputSchemas = {
     "properties": {
       "pid": {
         "type": "number"
+      },
+      "name": {
+        "type": "string"
       }
     },
-    "required": [
-      "pid"
+    "required": [],
+    "anyOf": [
+      {
+        "required": [
+          "pid"
+        ]
+      },
+      {
+        "required": [
+          "name"
+        ]
+      }
     ],
     "additionalProperties": false
   },
@@ -57,6 +70,9 @@ export const toolInputSchemas = {
           "monitor_next",
           "minimize_all"
         ]
+      },
+      "name": {
+        "type": "string"
       }
     },
     "required": [
