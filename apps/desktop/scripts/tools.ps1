@@ -10,6 +10,15 @@ try {
     foreach($dir in $dirs){if(Test-Path -LiteralPath $dir){$apps+=@(Get-ChildItem -LiteralPath $dir -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {@{name=$_.BaseName;id=$_.FullName}})}}
     return @($apps|Sort-Object name -Unique)
   }
+  function TargetProcess($argsInput) {
+    if($argsInput.pid){return Get-Process -Id ([int]$argsInput.pid) -ErrorAction Stop}
+    if(-not $argsInput.name){throw 'Provide app name or PID'}
+    $search=[string]$argsInput.name
+    $found=@(Get-Process | Where-Object {$_.MainWindowHandle -ne 0 -and ($_.ProcessName -like ('*'+$search+'*') -or $_.MainWindowTitle -like ('*'+$search+'*'))})
+    if($found.Count -eq 0){throw 'No matching running window'}
+    if($found.Count -gt 1){Out @{status='ambiguous';choices=@($found|Select-Object ProcessName,Id,MainWindowTitle)}}
+    return $found[0]
+  }
   function EditDistance([string]$left,[string]$right) {
     $previous=@(0..$right.Length)
     for($i=1;$i -le $left.Length;$i++){
@@ -55,10 +64,10 @@ public class NativeWindows {
     Out @{status='opened';app=$chosen.name}
    }
    'list_running_apps' {Out @{apps=@(Get-Process|Where-Object {$_.MainWindowHandle -ne 0}|Select-Object ProcessName,Id,MainWindowTitle)}}
-   'close_app' {$p=Get-Process -Id ([int]$a.pid);Out @{requested=$p.CloseMainWindow();pid=$p.Id}}
+   'close_app' {$p=TargetProcess $a;Out @{requested=$p.CloseMainWindow();pid=$p.Id}}
    'window_control' {
      if($a.action -eq 'minimize_all'){$shell=New-Object -ComObject Shell.Application;$shell.MinimizeAll();Out @{ok=$true}}
-     $p=Get-Process -Id ([int]$a.pid);if($p.MainWindowHandle -eq 0){throw 'No visible top-level window for process'}
+     $p=TargetProcess $a;if($p.MainWindowHandle -eq 0){throw 'No visible top-level window for process'}
      Add-Type -AssemblyName System.Windows.Forms;WinApi;$hwnd=$p.MainWindowHandle
      switch($a.action){
       'minimize' {$ok=[NativeWindows]::ShowWindow($hwnd,6)}
