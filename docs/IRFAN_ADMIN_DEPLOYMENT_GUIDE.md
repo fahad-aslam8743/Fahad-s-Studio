@@ -8,6 +8,7 @@
 
 ## Server-only runtime variables (never in app/CI source)
 APP_TOKEN, GEMINI_API_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL.
+AI usage cap: GEMINI_DAILY_REQUEST_LIMIT (Plaintext integer, default 500 per linked account/day). This is an atomic request-count limit, not an actual invoice ceiling; configure Gemini provider billing too.
 Gmail: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI, OAUTH_ENCRYPTION_KEY (base64 AES-256).
 Paid video: FAL_KEY, FAL_DAILY_LIMIT_USD.
 YouTube first video: YOUTUBE_API_KEY.
@@ -17,8 +18,8 @@ Runtime Secrets vs Build vars must be distinguished. Read docs/PHASE3_GMAIL_SETU
 Run all SQL migrations in supabase/migrations, including phase5_devices_relay_rate and earlier budget reservation. Confirm RLS. Device code hash, device bearer token hash and task results are private. Rotate a compromised device token by revoking and re-pairing; rotating OAUTH_ENCRYPTION_KEY requires decrypt/re-encrypt Gmail ciphertext or user reauthorization.
 
 ## Rate limits, cost, logs and safety
-The /devices and /relay routes use atomic per-minute RPC counters; limit defaults to 6/min for pairing redeem and 120/min other device paths. Phase 4 cost approval atomically reserves estimated USD per day. Also set account-level fal budgets; our estimates are not a provider-level spending cap.
-Audit files in Windows userData/tool-audit.jsonl contain filenames and tool metadata. Secure local profile. Supabase memories/summaries and Gmail/video records may contain private data, so restrict retention and backup access.
+The /devices and /relay routes use atomic per-minute RPC counters; the AI routes use a separate atomic daily RPC counter; limit defaults to 6/min for pairing redeem and 120/min other device paths. Phase 4 cost approval atomically reserves estimated USD per day. Also set account-level fal budgets; our estimates are not a provider-level spending cap.
+Windows error metadata (redacted) is stored in userData/desktop-errors.jsonl; audit files in Windows userData/tool-audit.jsonl contain filenames and tool metadata. Secure local profile. Supabase memories/summaries and Gmail/video records may contain private data, so restrict retention and backup access.
 
 ## Backup and recovery
 Regularly back up the Supabase database with the provider backup feature or an administrator-run pg_dump in a trusted environment, encrypt the backup and retain it securely off-device; on free tiers backups may not be automatic. Retain a separate encrypted copy of OAUTH_ENCRYPTION_KEY and signing keystores, NEVER in the same unencrypted backup. Test restore to a non-production project with restricted access. Document rotation dates, keys and recovery contacts securely outside the app. Back up only required metadata; generated fal videos should be downloaded separately because result links can expire.
