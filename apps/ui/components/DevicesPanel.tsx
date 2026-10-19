@@ -1,7 +1,7 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
 type Api=(path:string,init?:RequestInit)=>Promise<any>;
-type Native={propose:(name:string,args:any)=>Promise<any>;decide:(id:string,approved:boolean)=>Promise<any>};
+type Native={propose:(name:string,args:any)=>Promise<any>;decide:(id:string,approved:boolean)=>Promise<any>;videoPropose:(kind:string,plan?:unknown)=>Promise<any>;videoDecide:(id:string,approved:boolean)=>Promise<any>};
 export default function DevicesPanel({request,desktop}:{request:Api;desktop?:Native}){
  const [code,setCode]=useState(''),[devices,setDevices]=useState<Array<{id:string;label:string;platform:string;revoked_at?:string}>>([]);
  const [target,setTarget]=useState(''),[tool,setTool]=useState('open_app'),[args,setArgs]=useState('{"name":"Calculator"}');
@@ -16,9 +16,8 @@ export default function DevicesPanel({request,desktop}:{request:Api;desktop?:Nat
   outstanding.current.add(task.id);setTasks(old=>old.filter(x=>x.id!==task.id));
   let state='rejected',detail='Denied by PC user';
   if(approved){try{
-    if(task.tool==='video_render')throw Error('Remote rendering requires reviewing a local video plan first; use Video Studio on PC.');
-    const proposed=await desktop!.propose(task.tool,task.args);
-    const result=proposed.status==='confirmation_required'?await desktop!.decide(proposed.id,true):proposed;
+    const proposed=task.tool==='video_render'?await desktop!.videoPropose('render',task.args.plan):await desktop!.propose(task.tool,task.args);
+    const result=proposed.status==='confirmation_required'?(task.tool==='video_render'?await desktop!.videoDecide(proposed.id,true):await desktop!.decide(proposed.id,true)):proposed;
     state=result.status==='completed'?'completed':'rejected';detail=JSON.stringify(result).slice(0,700)
   }catch(e){state='failed';detail=String(e)}}
   try{await request('/relay/complete',{method:'POST',body:JSON.stringify({id:task.id,status:state,detail})});setStatus('Task '+task.id+': '+state)}
