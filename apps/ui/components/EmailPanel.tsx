@@ -9,7 +9,7 @@ export default function EmailPanel({request,openExternal,onSpeak}:{request:Req;o
  const [pending,setPending]=useState<any>(null),[status,setStatus]=useState(''),[loading,setLoading]=useState(false);
  async function perform(fn:()=>Promise<void>){setLoading(true);try{await fn();setStatus('')}catch(e){setStatus(String(e))}finally{setLoading(false)}}
  async function inbox(q?:string){const r=await request(q?'/email/search?q='+encodeURIComponent(q):'/email/inbox');setEmails(r.messages||[])}
- useEffect(()=>{void request('/email/status').then(setAccount).catch(e=>setStatus(String(e)))},[request]);
+ useEffect(()=>{void request('/email/status').then(setAccount).catch(e=>setStatus(String(e)))},[]);
  async function connect(){const x=await request('/email/connect',{method:'POST',body:'{}'});openExternal(x.url);setStatus('Authorize in your browser, then press Refresh connection.')}
  async function prepare(kind:'send'|'reply'|'trash'){const payload=kind==='send'?{kind,to,subject,body}:{kind,messageId:selected?.id,body};setPending(await request('/email/prepare',{method:'POST',body:JSON.stringify(payload)}))}
  async function decide(approved:boolean){if(!pending)return;const p=pending;setPending(null);const r=await request('/email/confirm',{method:'POST',body:JSON.stringify({id:p.id,approved})});setStatus(r.status==='completed'?'Email action completed':r.status);if(approved)await inbox()}
