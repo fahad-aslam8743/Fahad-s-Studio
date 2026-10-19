@@ -18,6 +18,14 @@ jobs:
           version: 10.18.0
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm typecheck
+      - name: PowerShell helper smoke test
+        shell: pwsh
+        run: |
+          $payload = '{"name":"list_running_apps","args":{}}'
+          $output = $payload | powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File apps/desktop/scripts/tools.ps1
+          if ($LASTEXITCODE -ne 0) { throw $output }
+          $parsed = $output | ConvertFrom-Json
+          if ($null -eq $parsed.apps) { throw 'Missing apps result' }
       - run: pnpm --filter @irfan/ui build
       - run: pnpm --filter @irfan/desktop dist:win
         env:
