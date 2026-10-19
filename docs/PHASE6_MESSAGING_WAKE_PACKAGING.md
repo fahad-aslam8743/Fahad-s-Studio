@@ -1,10 +1,10 @@
 # Phase 6: messaging options, wake word, safety, signed releases
 
-## WhatsApp — OWNER DECISION REQUIRED (no implementation selected)
+## WhatsApp — OWNER SELECTED OPTION C FOR A DEDICATED JARVIS NUMBER
 1. OFFICIAL WhatsApp Business Platform / Cloud API: suitable for business numbers, templates, business messaging and consent, usage-based charges/Meta restrictions. This is not a general connector to an ordinary personal WhatsApp inbox.
 2. PERSONAL-account Android NotificationListenerService + Android RemoteInput notification quick reply: limited to notifications exposed by WhatsApp when the phone is unlocked/permissions enabled. Quick reply only when a RemoteInput action is present, older chats and arbitrary new outgoing messages may not be accessible. Requires notification access and user confirmation. No silent access to encrypted chat history. This is recommended ONLY when the client's goal is personal WhatsApp and they accept notification-only limits.
 3. UNOFFICIAL WhatsApp Web automation via whatsapp-web.js: fragile, not supported or guaranteed by Meta and may risk account restriction or bans; NOT recommended, not built.
-Do not implement any of these before the user explicitly chooses one. Once chosen, every outbound message MUST show recipient and full body before a user-initiated approve.
+The owner chose **Option C (whatsapp-web.js)** specifically for a dedicated Jarvis-only number. The Windows-only implementation is on `phase-6-whatsapp-web`; it requires a live WhatsApp QR scan before use. Every outbound message displays the exact recipient and complete body and requires a one-time explicit approval. See `docs/PHASE6_WHATSAPP_WEB_SETUP_TESTS.md` for source, setup, test checklist and account-ban/security limitations.
 
 ## Wake word
 - Android: Porcupine Android SDK 4.0.2 uses built-in 'Jarvis', or the user may import their own .ppn model trained in Picovoice Console. Requires personal Picovoice AccessKey; stored in Android Keystore, never in the repo or WebView. Foreground microphone service is enabled manually, with persistent notification; stops when requested. Android 14+ mic foreground service starts from visible Activity; no hidden boot auto-start. On detection, prompts Android's system speech recognizer when app is visible. Background detection may surface a notification; launching speech recognition from a hidden app is not guaranteed. Licensing: verify current Picovoice developer/commercial pricing and usage caps with provider.
@@ -40,7 +40,8 @@ Android release uses owner-generated Android app signing keystore (ANDROID_KEYST
 Google Play has strict requirements for AccessibilityService APIs, foreground service types and sensitive user-data disclosures; non-accessibility automated controls can be rejected under Play policy. SMS/Call Log permission access is restricted; this companion deliberately uses ACTION_DIAL / ACTION_SENDTO instead. Notification listener access is especially sensitive and requires disclosure and user choice. Publishing later requires a new policy review, data safety form, privacy policy and device testing; sideloading does not make restricted system actions technically possible.
 
 ## Phase 6 final checks
-- [ ] Verify owner selects ONE WhatsApp method before coding it.
+- [x] Owner selected Option C for a dedicated Jarvis number; code added on phase-6-whatsapp-web.
+- [ ] Scan dedicated number's QR on target Windows PC; manually verify sends/replies, account restrictions and session security.
 - [ ] Built-in Jarvis Porcupine starts/stops only after microphone permission and AccessKey. Test custom .ppn.
 - [ ] Revoke device token, test malformed pairing and relay confirmation.
 - [ ] Set Android tool SAFE/CONFIRM/BLOCKED; high-risk tools cannot be SAFE. Same on desktop.
