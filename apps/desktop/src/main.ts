@@ -1,4 +1,5 @@
 import {app,BrowserWindow,ipcMain,protocol,net,session} from 'electron';
+import {attachLocalAgent} from './local-agent';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 const dev=process.env.IRFAN_DEV==='1';
@@ -23,7 +24,7 @@ app.whenReady().then(()=>{
    return net.fetch(pathToFileURL(target).toString());
  });
  session.defaultSession.setPermissionRequestHandler((_wc,permission,cb)=>cb(permission==='media'));
- ipcMain.handle('local-tools',()=>localTools().map(({name,risk})=>({name,risk})));
+ attachLocalAgent();
  createWindow();app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow()});
 });
 app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit()});
