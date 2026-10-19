@@ -7,7 +7,7 @@ import VideoPanel from '../components/VideoPanel';
 import WakeWord from '../components/WakeWord';
 const Core=dynamic(()=>import('../components/Core'),{ssr:false});
 type Line={role:'user'|'assistant';content:string};
-declare global {interface Window {irfan?:{platform:string;version:string;listTools:()=>Promise<Array<{name:string;risk:string;description:string}>>;propose:(name:string,args:unknown)=>Promise<any>;decide:(id:string,approved:boolean)=>Promise<any>;videoPropose:(kind:string,plan?:unknown)=>Promise<any>;videoDecide:(id:string,approved:boolean)=>Promise<any>;openExternal:(url:string)=>Promise<void>}}}
+declare global {interface Window {irfan?:{platform:string;version:string;listTools:()=>Promise<Array<{name:string;risk:string;description:string}>>;propose:(name:string,args:unknown)=>Promise<any>;decide:(id:string,approved:boolean)=>Promise<any>;videoPropose:(kind:string,plan?:unknown)=>Promise<any>;videoDecide:(id:string,approved:boolean)=>Promise<any>;openExternal:(url:string)=>Promise<void>;onVideoProgress?:(listener:(detail:any)=>void)=>(()=>void)}}}
 
 const DEFAULT_API='http://127.0.0.1:8787';
 export default function Home(){
