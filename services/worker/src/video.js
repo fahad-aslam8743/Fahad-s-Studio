@@ -46,15 +46,16 @@ export async function handleVideo(request,env,path,gemini,textOf){
   const today=new Date().toISOString().slice(0,10),limit=Number(env.FAL_DAILY_LIMIT_USD||5);
   const usage=await persist(env,'jarvis_video_usage','GET','?select=estimated_usd&recorded_at=gte.'+today+'T00:00:00Z&event=eq.submitted');
   const total=usage.reduce((n,x)=>n+Number(x.estimated_usd),0);
-  if(!Number.isFinite(limit)||total+c.estimate>limit)return out({error:'Daily paid generation budget exceeded',estimateUsd:c.estimate,dailyLimitUsd:limit},403);
+  if(!Number.isFinite(limit)||limit<0||total+c.estimate>limit)return out({error:'Daily paid generation budget exceeded',estimateUsd:c.estimate,dailyLimitUsd:limit},403);
   const rows=await persist(env,'jarvis_video_jobs','POST','',{kind:c.kind,model_id:c.model.id,estimate_usd:c.estimate,status:'pending_confirmation',result:{input:c.input}});
-  return out({status:'confirmation_required',id:rows[0].id,model:c.model.id,kind:c.kind,estimateUsd:c.estimate,estimateOnly:true,dailyLimitUsd:limit,preview:c.input});
+  return out({status:'confirmation_required',id:rows[0].id,model:c.model.id,kind:c.kind,estimateUsd:c.estimate,estimateOnly:true,dailyLimitUsd:limit,expiresInSeconds:300,preview:c.input});
  }
  if(path==='/video/confirm'&&method==='POST'){
   const b=await request.json();if(!/^[0-9a-f-]{36}$/i.test(b.id||''))return out({error:'Invalid confirmation'},400);
-  const q='?id=eq.'+b.id+'&status=eq.pending_confirmation';
+  const q='?id=eq.'+b.id+'&status=eq.pending_confirmation&created_at=gte.'+encodeURIComponent(new Date(Date.now()-5*60*1000).toISOString());
   if(b.approved!==true){await persist(env,'jarvis_video_jobs','PATCH',q,{status:'cancelled',result:null});return out({status:'cancelled'})}
   if(!env.FAL_KEY)return out({error:'FAL_KEY not configured'},503);
+  // Approval is valid for just 5 minutes, but charged-account limits are estimates.
   // Atomic state transition: cannot submit the same job twice.
   const claimed=await persist(env,'jarvis_video_jobs','PATCH',q,{status:'submitting'});
   if(claimed.length!==1)return out({error:'Confirmation expired or already consumed'},409);
