@@ -10,6 +10,19 @@ try {
     foreach($dir in $dirs){if(Test-Path -LiteralPath $dir){$apps+=@(Get-ChildItem -LiteralPath $dir -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {@{name=$_.BaseName;id=$_.FullName}})}}
     return @($apps|Sort-Object name -Unique)
   }
+  function EditDistance([string]$left,[string]$right) {
+    $previous=@(0..$right.Length)
+    for($i=1;$i -le $left.Length;$i++){
+      $current=New-Object int[] ($right.Length+1)
+      $current[0]=$i
+      for($j=1;$j -le $right.Length;$j++){
+        $cost=if($left[$i-1] -eq $right[$j-1]){0}else{1}
+        $current[$j]=[Math]::Min([Math]::Min($current[$j-1]+1,$previous[$j]+1),$previous[$j-1]+$cost)
+      }
+      $previous=$current
+    }
+    return $previous[$right.Length]
+  }
   function WinApi {
    if(-not ('NativeWindows' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -31,7 +44,7 @@ public class NativeWindows {
    'list_installed_apps' {Out @{apps=@(AppList)}}
    'open_app' {
     $apps=@(AppList);$q=([string]$a.name).ToLowerInvariant()
-    $ranked=@($apps|ForEach-Object {$label=[string]$_.name;$lower=$label.ToLowerInvariant();$score=if($lower -eq $q){0}elseif($lower.StartsWith($q)){1}elseif($lower.Contains($q)){2}else{100};if($score -lt 100){@{name=$label;id=$_.id;score=$score}}}|Sort-Object score,name)
+    $ranked=@($apps|ForEach-Object {$label=[string]$_.name;$lower=$label.ToLowerInvariant();$score=if($lower -eq $q){0}elseif($lower.StartsWith($q)){1}elseif($lower.Contains($q)){2}else{$distance=EditDistance $lower $q;if($distance -le [Math]::Max(2,[Math]::Ceiling($q.Length*.25))){3+$distance}else{100}};if($score -lt 100){@{name=$label;id=$_.id;score=$score}}}|Sort-Object score,name)
     if($a.selection){$chosen=$ranked|Where-Object {$_.id -eq $a.selection}|Select-Object -First 1}
     elseif($ranked.Count -eq 1 -or ($ranked.Count -gt 1 -and $ranked[0].score -eq 0 -and $ranked[1].score -ne 0)){$chosen=$ranked[0]}
     elseif($ranked.Count -gt 0){Out @{status='ambiguous';choices=@($ranked|Select-Object -First 8)}}
