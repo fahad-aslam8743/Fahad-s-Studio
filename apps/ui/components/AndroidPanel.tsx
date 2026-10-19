@@ -29,7 +29,7 @@ export default function AndroidPanel({request}:{request:(path:string,init?:Reque
    <p className="text-xs">Requires Picovoice AccessKey; mic indicator stays visible. Starts only by your action.</p>
    <input className="input w-full" type="password" placeholder="Picovoice AccessKey (saved in Android Keystore)" value={key} onChange={e=>setKey(e.target.value)}/>
    <button className="btn" onClick={()=>void run(async()=>{const result=await nativeCall('wake.start',{accessKey:key});setKey('');return result})}>Enable Jarvis wake word</button>
-   <button className="btn ml-2" onClick={()=>void run(()=>nativeCall('wake.stop'))}>Disable</button>
+   <button className="btn ml-2" onClick={()=>void run(()=>nativeCall('wake.stop'))}>Disable</button><button className="btn ml-2" onClick={()=>void run(()=>nativeCall('wake.selectModel'))}>Choose custom .ppn wake model</button>
    <button className="btn ml-2" onClick={()=>void run(()=>nativeCall('speech'))}>Native speech recognition</button>
   </div>
   <div className="border-t border-cyan-900 pt-2 space-y-2">
