@@ -1,3 +1,5 @@
+import {EmailProvider} from './email-provider.js';
+export {OutlookProvider} from './email-provider.js';
 // Cloudflare Worker Gmail provider. No tokens or secrets are returned to the client.
 const te=new TextEncoder();
 const enc=b=>btoa(String.fromCharCode(...new Uint8Array(b)));
@@ -22,8 +24,8 @@ function safeAddress(s){if(typeof s!=='string'||s.length>250||/[\r\n]/.test(s)||
 function safeHeader(s,max){if(typeof s!=='string'||s.length>max||/[\r\n]/.test(s))throw Error('Invalid header');return s}
 function mime(payload){const raw=['To: '+payload.to,'Subject: '+payload.subject,'MIME-Version: 1.0','Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64'];if(payload.inReplyTo)raw.push('In-Reply-To: '+safeHeader(payload.inReplyTo,300));if(payload.references)raw.push('References: '+safeHeader(payload.references,800));raw.push('',enc(te.encode(payload.body)));return b64url(te.encode(raw.join('\r\n')))}
 function replyPayload(source,body){const h=source.headers;const sender=(h.from||'').match(/<([^>]+)>/)?.[1]||h.from||'';const to=safeAddress(sender);return {to,subject:/^Re:/i.test(h.subject||'')?h.subject:'Re: '+(h.subject||''),body,threadId:source.threadId,inReplyTo:h['message-id']||'',references:[h.references,h['message-id']].filter(Boolean).join(' ')}}
-export class GmailProvider{
- constructor(env){this.env=env;this.access=null}
+export class GmailProvider extends EmailProvider{
+ constructor(env){super();this.env=env;this.access=null}
  call(path,opts){if(!this.access)this.access=refresh(this.env);return gmail(this.env,path,opts,this.access)}
  inbox(q='in:inbox',max=15){return this.call('/messages?'+new URLSearchParams({q,maxResults:String(Math.min(30,Math.max(1,max)))}))}
  async message(id){return normalize(await this.call('/messages/'+encodeURIComponent(id)+'?format=full'))}
@@ -33,7 +35,7 @@ export class GmailProvider{
  async send(p){return this.call('/messages/send',{method:'POST',body:JSON.stringify({raw:mime(p),...(p.threadId?{threadId:p.threadId}:{})})})}
  async trash(id){return this.call('/messages/'+encodeURIComponent(id)+'/trash',{method:'POST'})}
 }
-export class OutlookProvider {constructor(){throw Error('Outlook provider not connected; Microsoft Graph adapter to be added later')}}
+
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 export async function gmailCallback(request,env){
  const url=new URL(request.url),state=url.searchParams.get('state'),code=url.searchParams.get('code');
