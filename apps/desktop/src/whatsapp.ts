@@ -12,6 +12,7 @@ let message='Not connected';
 let qrImage:string|null=null;
 let lastError:string|null=null;
 let lastReadyAt:string|null=null;
+let lastAttempt=0;
 const broadcast=(type:string,data:Record<string,unknown>={})=>{
  for(const w of BrowserWindow.getAllWindows())if(!w.isDestroyed())w.webContents.send('whatsapp:event',{type,...data});
 };
@@ -53,7 +54,12 @@ const safeMessage=(m:any)=>({
 async function stopClient(logout:boolean){
  approvals.clear();qrImage=null;initializing=false;
  const old=client;client=null;
- if(old){try{if(logout)await old.logout();else await old.destroy()}catch{/* session may already be disconnected */}}
+ if(old){try{if(logout)await old.logout();else await old.destroy()}catch{/* disconnected already */}}
+ if(logout){
+  const directory=path.join(app.getPath('userData'),'whatsapp-local-auth','session-jarvis-dedicated');
+  try{fs.rmSync(directory,{recursive:true,force:true,maxRetries:5,retryDelay:400})}
+  catch{change('error','Could not delete session files; close Jarvis and remove WhatsApp local session manually');throw Error('WhatsApp local session deletion failed')}
+ }
  change(logout?'logged_out':'stopped',logout?'Jarvis WhatsApp device unlinked':'WhatsApp browser stopped');
 }
 async function startClient(){
@@ -89,6 +95,22 @@ async function startClient(){
  catch(e){initializing=false;client=null;change('error','Unable to launch WhatsApp browser',bounded(String(e),200));throw e}
  return {phase:'starting',message:'Connecting to WhatsApp Web'};
 }
+function reserveOutboundSend(){
+ const now=Date.now(),day=new Date(now).toISOString().slice(0,10);
+ const configured=Number(process.env.IRFAN_WA_DAILY_SEND_LIMIT||30);
+ if(!Number.isInteger(configured)||configured<1||configured>100)throw Error('IRFAN_WA_DAILY_SEND_LIMIT must be 1–100');
+ if(now-lastAttempt<3000)throw Error('Please wait a few seconds before another WhatsApp send');
+ const file=path.join(app.getPath('userData'),'whatsapp-send-quota.json');
+ let record:{day:string;count:number}={day,count:0};
+ try{record=JSON.parse(fs.readFileSync(file,'utf8'))}catch{/* no prior record */}
+ if(record.day!==day)record={day,count:0};
+ if(record.count>=configured)throw Error('Daily WhatsApp sending limit reached. Try again tomorrow.');
+ const next={day,count:record.count+1};
+ const temp=file+'.tmp';
+ fs.writeFileSync(temp,JSON.stringify(next),{mode:0o600});
+ fs.renameSync(temp,file);
+ lastAttempt=now;
+}
 async function resolveRecipient(to:string){
  const active=assertReady();
  if(CHAT.test(to)){
@@ -99,7 +121,7 @@ async function resolveRecipient(to:string){
  }
  if(!PHONE.test(to))throw Error('Provide international digits including country code');
  const registered=await active.getNumberId(to);
- if(!registered?. _serialized)throw Error('This phone number is not registered on WhatsApp');
+ if(!registered?._serialized)throw Error('This phone number is not registered on WhatsApp');
  return {to:registered._serialized,display:'+'+to};
 }
 export function attachWhatsApp(){
@@ -137,6 +159,7 @@ export function attachWhatsApp(){
   const wa=assertReady();
   const {to,body,quotedMessageId}=decision.draft;
   // User approved an exact single recipient and complete body; never send from incoming content.
+  reserveOutboundSend();
   const sent=await wa.sendMessage(to,body,quotedMessageId?{quotedMessageId}:undefined);
   return {status:'sent',messageId:bounded(sent.id?._serialized,220),recipient:to};
  });
