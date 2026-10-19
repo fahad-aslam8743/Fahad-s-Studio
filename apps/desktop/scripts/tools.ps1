@@ -100,7 +100,16 @@ public class NativeWindows {
    }
    'screen_brightness' {$m=Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop|Select-Object -First 1;if(-not $m){throw 'Brightness control not supported'};$m|Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{Timeout=1;Brightness=[byte]$a.percent}|Out-Null;Out @{brightness=$a.percent}}
    'system_radio' {
-     if($a.device -ne 'wifi'){throw 'Bluetooth and airplane mode toggles unavailable through reliable unprivileged Windows API'}
+     if($a.device -ne 'wifi'){
+       $uri=if($a.device -eq 'bluetooth'){'ms-settings:bluetooth'}else{'ms-settings:network-airplanemode'}
+       Start-Process -FilePath $uri
+       Out @{status='manual_action_required';device=$a.device;requestedEnabled=$a.enabled;settingsOpened=$uri;note='Reliable automated radio control unavailable without device-specific WinRT permissions'}
+     }
+     $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()
+     $principal=New-Object System.Security.Principal.WindowsPrincipal($identity)
+     if(-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)){
+       throw 'Wi-Fi adapter changes require Administrator rights. Jarvis will not elevate itself.'
+     }
      $adapt=Get-NetAdapter -Physical|Where-Object {$_.InterfaceDescription -match 'Wi-Fi|Wireless|802.11'}|Select-Object -First 1;if(-not $adapt){throw 'Wi-Fi adapter not found'}
      if($a.enabled){Enable-NetAdapter -Name $adapt.Name -Confirm:$false -ErrorAction Stop}else{Disable-NetAdapter -Name $adapt.Name -Confirm:$false -ErrorAction Stop};Out @{ok=$true;requiresAdmin=$true}
    }
