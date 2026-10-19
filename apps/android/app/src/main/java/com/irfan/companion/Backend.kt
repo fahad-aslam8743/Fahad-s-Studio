@@ -5,6 +5,9 @@ import org.json.JSONObject
 import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.UnknownHostException
+import java.net.SocketTimeoutException
+import java.net.ConnectException
 
 class Backend(context: Context) {
     private val store = SecureStore(context)
@@ -40,7 +43,10 @@ class Backend(context: Context) {
                 }.joinToString("")
                 JSONObject().put("text",text)
             } else JSONObject(result)
-        } finally { connection.disconnect() }
+        } catch (_:UnknownHostException) { throw IllegalStateException("Internet connection unavailable. Jarvis will reconnect when online.") }
+          catch (_:SocketTimeoutException) { throw IllegalStateException("The server took too long. Please try again.") }
+          catch (_:ConnectException) { throw IllegalStateException("Jarvis cannot reach the server. Check your connection.") }
+          finally { connection.disconnect() }
     }
     fun pair(code: String): JSONObject {
         val result=call("/devices/redeem","POST",JSONObject().put("code",code).put("label","Irfan Android"),false)
