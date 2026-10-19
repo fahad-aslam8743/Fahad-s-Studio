@@ -5,7 +5,7 @@ import {app,BrowserWindow,ipcMain} from 'electron';
 import {definitions,runNative,specs,type Name} from './local-tools';
 type Pending={name:Name;args:unknown;sourceId:number;expires:number};
 const pending=new Map<string,Pending>();
-async function log(name:string,args:unknown,outcome:string,result:unknown){const dir=app.getPath('userData');await mkdir(dir,{recursive:true});await appendFile(path.join(dir,'tool-audit.jsonl'),JSON.stringify({time:new Date().toISOString(),name,args,outcome,result})+'\n');}
+async function log(name:string,args:unknown,outcome:string,result:unknown){const dir=app.getPath('userData');await mkdir(dir,{recursive:true});const safeArgs=name==='clipboard_write'?{text:'[REDACTED]'}:args;const safeResult=name==='clipboard_read'?{text:'[REDACTED]'}:result;await appendFile(path.join(dir,'tool-audit.jsonl'),JSON.stringify({time:new Date().toISOString(),name,args:safeArgs,outcome,result:safeResult})+'\n');}
 async function act(name:Name,args:unknown){let result:unknown;try{result=await runNative(name,args);await log(name,args,'success',result);return result}catch(err){await log(name,args,'error',{message:String(err)});throw err}}
 export function attachLocalAgent(){
  ipcMain.handle('local:list-tools',()=>definitions.map(x=>({name:x.name,description:x.description,risk:x.risk,executor:x.executor,inputSchema:x.inputSchema})));
