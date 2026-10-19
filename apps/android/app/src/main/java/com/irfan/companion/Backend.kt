@@ -2,6 +2,7 @@ package com.irfan.companion
 
 import android.content.Context
 import org.json.JSONObject
+import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -32,7 +33,13 @@ class Backend(context: Context) {
             val stream=if(code in 200..299) connection.inputStream else connection.errorStream
             val result=stream?.bufferedReader()?.use{it.readText().take(800000)} ?: "{}"
             if(code !in 200..299)throw IllegalStateException("Server $code: "+JSONObject(result).optString("error","Request failed"))
-            JSONObject(result)
+            if(result.trimStart().startsWith("["))JSONObject().put("items",JSONArray(result))
+            else if(connection.contentType?.contains("text/event-stream")==true){
+                val text=result.split("\n\n").mapNotNull{block->
+                    if(!block.contains("event: delta"))null else try{val line=block.lines().first{it.startsWith("data: ")};JSONObject(line.removePrefix("data: ")).optString("text")}catch(_:Exception){null}
+                }.joinToString("")
+                JSONObject().put("text",text)
+            } else JSONObject(result)
         } finally { connection.disconnect() }
     }
     fun pair(code: String): JSONObject {
