@@ -18,7 +18,26 @@ export const emailSafety={
 };
 function from64(s){if(!s)return '';return new TextDecoder().decode(un64(s))}
 function headers(m){const o={};for(const h of m.payload?.headers||[])if(['from','to','subject','date','message-id','references'].includes(h.name.toLowerCase()))o[h.name.toLowerCase()]=h.value;return o}
-function bodyText(node){if(!node)return '';if(node.mimeType==='text/plain'&&node.body?.data)return from64(node.body.data);for(const p of node.parts||[]){const v=bodyText(p);if(v)return v}return !node.parts?.length&&node.mimeType?.startsWith('text/')?from64(node.body?.data):''}
+function htmlPlain(source){
+ return source.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,'')
+  .replace(/<br\s*\/?>/gi,'\n').replace(/<\/(?:p|div|tr|li|h[1-6])\s*>/gi,'\n')
+  .replace(/<[^>]+>/g,'')
+  .replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi,(_whole,key)=>{
+   if(key[0]==='#'){const n=key[1]?.toLowerCase()==='x'?parseInt(key.slice(2),16):Number(key.slice(1));return n>0&&n<=0x10ffff?String.fromCodePoint(n):''}
+   return {amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' '}[key.toLowerCase()]||'';
+  }).replace(/\n{3,}/g,'\n\n').trim();
+}
+export function bodyText(node){
+ const plain=[],html=[];
+ const walk=p=>{
+  if(!p||p.filename||p.body?.attachmentId)return;
+  if(p.body?.data&&p.mimeType==='text/plain')plain.push(from64(p.body.data));
+  else if(p.body?.data&&p.mimeType==='text/html')html.push(htmlPlain(from64(p.body.data)));
+  for(const child of p.parts||[])walk(child);
+ };
+ walk(node);
+ return (plain.length?plain:html).filter(Boolean).join('\n\n').trim();
+}
 function normalize(m){return {id:m.id,threadId:m.threadId,labels:m.labelIds||[],snippet:m.snippet||'',headers:headers(m),body:bodyText(m.payload).slice(0,18000)}}
 function safeAddress(s){if(typeof s!=='string'||s.length>250||/[\r\n]/.test(s)||!/^([^\s@<>]+@[^\s@<>]+\.[^\s@<>]+)$/.test(s.trim()))throw Error('Invalid recipient email');return s.trim()}
 function safeHeader(s,max){if(typeof s!=='string'||s.length>max||/[\r\n]/.test(s))throw Error('Invalid header');return s}
