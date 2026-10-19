@@ -1,13 +1,15 @@
 'use client';
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 type Req=(url:string,options?:RequestInit)=>Promise<any>;
-type Native={videoPropose:(kind:string,plan?:unknown)=>Promise<any>;videoDecide:(id:string,approved:boolean)=>Promise<any>;openExternal:(url:string)=>Promise<void>};
+type Native={videoPropose:(kind:string,plan?:unknown)=>Promise<any>;videoDecide:(id:string,approved:boolean)=>Promise<any>;openExternal:(url:string)=>Promise<void>;onVideoProgress?:(listener:(detail:any)=>void)=>(()=>void)};
 export default function VideoPanel({request,engine,setEngine,native}:{request:Req;engine:'local'|'fal';setEngine:(x:'local'|'fal')=>void;native?:Native}){
  const [idea,setIdea]=useState('A car chase at night'),[prompt,setPrompt]=useState(''),[negative,setNegative]=useState(''),[director,setDirector]=useState<any>(null);
  const [kind,setKind]=useState<'text'|'image'>('text'),[image,setImage]=useState(''),[duration,setDuration]=useState(5),[resolution,setResolution]=useState('720p'),[aspect,setAspect]=useState('16:9');
  const [paid,setPaid]=useState<any>(null),[local,setLocal]=useState<any>(null),[job,setJob]=useState<any>(null),[status,setStatus]=useState<any>(null);
  const [editing,setEditing]=useState('Make a 30 second vertical reel with subtitles and music'),[editPlan,setEditPlan]=useState(''),[localPlan,setLocalPlan]=useState(JSON.stringify({input:'C:\\Users\\Public\\Videos\\source.mp4',output:'C:\\Users\\Public\\Videos\\output.mp4',steps:[{type:'aspect',ratio:'9:16'},{type:'export',preset:'reels'}]},null,2));
- const [error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const [error,setError]=useState(''),[busy,setBusy]=useState(false),[localProgress,setLocalProgress]=useState<any>(null);
+ useEffect(()=>native?.onVideoProgress?.(setLocalProgress),[native]);
+ useEffect(()=>{if(!job?.id)return;let active=true;const tick=async()=>{try{const data=await request('/video/status?id='+encodeURIComponent(job.id));if(active)setStatus(data)}catch(err){if(active)setError('Video polling: '+String(err))}};void tick();const interval=setInterval(()=>{if(!status||!['completed','failed','cancelled','budget_rejected'].includes(String(status.status).toLowerCase()))void tick()},5000);return()=>{active=false;clearInterval(interval)}},[job?.id,status?.status]);
  async function tryIt(fn:()=>Promise<void>){setBusy(true);setError('');try{await fn()}catch(e){setError(String(e))}finally{setBusy(false)}}
  async function buildDirector(){const data=await request('/video/director',{method:'POST',body:JSON.stringify({idea,aspectRatio:aspect})});const b=data.brief;setDirector(b);setPrompt([b.subject,b.action,b.shotType,b.lens,b.cameraMovement,b.lighting,b.colorGrade,b.mood,b.styleReferences].filter(Boolean).join('. '));setNegative(b.negativePrompt||'');setDuration([5,10,15].includes(Number(b.duration))?Number(b.duration):5)}
  async function prepare(){setPaid(await request('/video/prepare',{method:'POST',body:JSON.stringify({kind,prompt,negativePrompt:negative,imageUrl:image,duration,resolution,aspectRatio:aspect})}))}
@@ -39,7 +41,7 @@ export default function VideoPanel({request,engine,setEngine,native}:{request:Re
     <button className="btn" onClick={()=>void tryIt(()=>approvePaid(true))}>Approve paid generation</button>
     <button className="btn ml-2" onClick={()=>void tryIt(()=>approvePaid(false))}>Cancel</button>
    </div>}
-   {job?.id&&<><p>Job: {job.id} ({job.status})</p><button className="btn" disabled={busy} onClick={()=>void tryIt(refresh)}>Check progress</button></>}
+   {job?.id&&<><p>Job: {job.id} ({job.status})</p><button className="btn" disabled={busy} onClick={()=>void tryIt(refresh)}>Refresh now</button><p className="text-xs">Automatic queue polling every 5 seconds until complete</p></>}
    {status?.logs&&<pre className="text-xs whitespace-pre-wrap">{status.logs.join('\n')}</pre>}
    {status?.videoUrl&&<><video src={status.videoUrl} controls preload="metadata" className="max-w-full"/><button className="btn" onClick={()=>void native?.openExternal(status.videoUrl)}>Download / open video in browser</button></>}
   </div>:<div className="space-y-3">
@@ -52,6 +54,7 @@ export default function VideoPanel({request,engine,setEngine,native}:{request:Re
    <button className="btn" disabled={!native||busy} onClick={()=>void tryIt(()=>prepareLocal('render'))}>Review and render locally</button>
    {local&&<div role="alertdialog" className="border-2 border-orange-400 p-4 space-y-2"><h3>CONFIRM {local.kind}</h3><pre className="text-xs whitespace-pre-wrap">{JSON.stringify(local.preview,null,2)}</pre><button className="btn" onClick={()=>void tryIt(()=>approveLocal(true))}>Approve</button><button className="btn ml-2" onClick={()=>void tryIt(()=>approveLocal(false))}>Cancel</button></div>}
   </div>}
+  {localProgress&&<p role="status" className="text-cyan-300">Local render: step {localProgress.step} of {localProgress.total} — {localProgress.message}</p>}
   {status&&!status.videoUrl&&<pre className="text-xs whitespace-pre-wrap break-all">{JSON.stringify(status,null,2)}</pre>}
   {error&&<p role="alert" className="text-red-300">{error}</p>}
  </div>
