@@ -1,0 +1,8 @@
+import {z} from 'zod';
+import {query} from './db.js';
+export type Risk='SAFE'|'CONFIRM'|'BLOCKED';
+export interface Tool<I> {name:string;description:string;risk:Risk;executor:'backend'|'local';schema:z.ZodType<I>;execute(input:I):Promise<unknown>}
+const getTime:Tool<Record<string,never>>={name:'get_current_time',description:'Read the current server time (UTC)',risk:'SAFE',executor:'backend',schema:z.object({}),execute:async()=>({iso:new Date().toISOString(),timezone:'UTC'})};
+export const registry=new Map<string,Tool<any>>([[getTime.name,getTime]]);
+export async function audit(name:string,risk:Risk,args:unknown,outcome:string,result:unknown){await query('INSERT INTO tool_audit(tool,risk,arguments,outcome,result) VALUES($1,$2,$3,$4,$5)',[name,risk,JSON.stringify(args),outcome,JSON.stringify(result??null)]).catch(e=>console.error('AUDIT FAILED',e));}
+export async function runTool(name:string,input:unknown,confirmed=false){const tool=registry.get(name);if(!tool)throw Error('Unknown tool');if(tool.risk==='BLOCKED')throw Error('Tool blocked');const args=tool.schema.parse(input);if(tool.risk==='CONFIRM'&&!confirmed){await audit(name,tool.risk,args,'pending',null);return {confirmationRequired:true,name,args};}try{const result=await tool.execute(args);await audit(name,tool.risk,args,'success',result);return {result};}catch(e){await audit(name,tool.risk,args,'error',{error:String(e)});throw e;}}

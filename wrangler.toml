@@ -1,0 +1,6 @@
+# Cloudflare Workers Builds starts at the repository root.
+# The API implementation lives in services/worker; do not deploy the Next.js UI as static assets.
+name = "fahad-s-studio"
+main = "services/worker/src/index.js"
+compatibility_date = "2026-10-18"
+workers_dev = true
