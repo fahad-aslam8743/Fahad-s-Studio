@@ -21,6 +21,7 @@ public class NativeWindows {
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out RECT r);
  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int hgt,bool repaint);
  [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hwnd,uint flags);
+ [DllImport("user32.dll")] public static extern void keybd_event(byte key,byte scan,int flags,UIntPtr info);
  [StructLayout(LayoutKind.Sequential)] public struct RECT {public int left,top,right,bottom;}
 }
 '@
@@ -58,16 +59,31 @@ public class NativeWindows {
         $w=[int]($screen.Width/2);$x=if($a.action -eq 'right'){$screen.Left+$w}else{$screen.Left}
         $ok=[NativeWindows]::MoveWindow($hwnd,$x,$screen.Top,$w,$screen.Height,$true)
       }
-      'monitor_next' {throw 'Monitor migration is not yet supported reliably'}
+      'monitor_next' {
+        $screens=[System.Windows.Forms.Screen]::AllScreens
+        if($screens.Count -lt 2){throw 'Only one monitor detected'}
+        $current=[System.Windows.Forms.Screen]::FromHandle($hwnd)
+        $index=[Array]::FindIndex($screens,[Predicate[System.Windows.Forms.Screen]]{param($screen) $screen.DeviceName -eq $current.DeviceName})
+        if($index -lt 0){throw 'Current monitor not found'}
+        $next=$screens[($index+1)%$screens.Count].WorkingArea
+        $rect=[NativeWindows+RECT]::new();[NativeWindows]::GetWindowRect($hwnd,[ref]$rect)|Out-Null
+        [NativeWindows]::ShowWindow($hwnd,9)|Out-Null
+        $width=[Math]::Min(($rect.right-$rect.left),$next.Width)
+        $height=[Math]::Min(($rect.bottom-$rect.top),$next.Height)
+        $ok=[NativeWindows]::MoveWindow($hwnd,$next.Left,$next.Top,$width,$height,$true)
+      }
      }
      Out @{ok=[bool]$ok;action=$a.action}
    }
    'open_website' {Start-Process -FilePath ([string]$a.url);Out @{opened=$a.url}}
    'youtube_search' {$u='https://www.youtube.com/results?search_query='+[uri]::EscapeDataString([string]$a.query);Start-Process $u;Out @{opened=$u;note='First-result autoplay requires YouTube API and is not available in this mode'}}
    'system_volume' {
-      $shell=New-Object -ComObject WScript.Shell
-      $key=if($a.action -eq 'up'){[char]175}elseif($a.action -eq 'down'){[char]174}else{[char]173}
-      $shell.SendKeys($key);Out @{requested=$a.action;note='Key-simulation depends on desktop focus'}
+      WinApi
+      $key=if($a.action -eq 'up'){175}elseif($a.action -eq 'down'){174}else{173}
+      [NativeWindows]::keybd_event([byte]$key,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [NativeWindows]::keybd_event([byte]$key,0,2,[UIntPtr]::Zero)
+      Out @{requested=$a.action;note='Virtual media keys; hardware and audio service may vary'}
    }
    'screen_brightness' {$m=Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop|Select-Object -First 1;if(-not $m){throw 'Brightness control not supported'};$m|Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{Timeout=1;Brightness=[byte]$a.percent}|Out-Null;Out @{brightness=$a.percent}}
    'system_radio' {
