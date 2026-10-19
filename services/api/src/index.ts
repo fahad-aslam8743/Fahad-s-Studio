@@ -8,7 +8,7 @@ import {query} from './db.js';
 import {recall,saveFact,extract} from './memory.js';
 import {registry,runTool} from './tools.js';
 const app=Fastify({logger:true,bodyLimit:12*1024*1024});
-await app.register(cors,{origin:(origin,cb)=>cb(null,!origin||origin==='http://localhost:3000'||origin==='http://127.0.0.1:3000'||origin==='null'),methods:['GET','POST','PUT','DELETE','OPTIONS'],allowedHeaders:['Authorization','Content-Type']});
+await app.register(cors,{origin:(origin,cb)=>cb(null,!origin||origin==='http://localhost:3000'||origin==='http://127.0.0.1:3000'||origin==='null'||origin==='irfan://studio'),methods:['GET','POST','PUT','DELETE','OPTIONS'],allowedHeaders:['Authorization','Content-Type']});
 app.addHook('onRequest',async(req,reply)=>{if(req.url==='/health')return;const secret=process.env.APP_TOKEN;if(!secret||secret.length<32){reply.code(503).send({error:'APP_TOKEN not configured securely'});return;}if(req.headers.authorization!=='Bearer '+secret){reply.code(401).send({error:'Unauthorized'});return;}});
 app.get('/health',async()=>({ok:true,name:"Irfan's Studio API"}));
 app.get('/personas',async()=>personas);
