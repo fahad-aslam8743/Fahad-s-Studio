@@ -1,8 +1,15 @@
+import {autoUpdater} from 'electron-updater';
 import {app,BrowserWindow,ipcMain,protocol,net,session,shell,safeStorage} from 'electron';
 import {attachLocalAgent} from './local-agent';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
+const diagnosticLog=async(kind:string,message:string)=>{
+ const safe=message.replace(/Bearer\s+[^\s]+/gi,'Bearer [REDACTED]').replace(/(?:key|token|secret|password)\s*[:=]\s*[^\s,]+/gi,'credential=[REDACTED]').slice(0,500);
+ try{const file=path.join(app.getPath('userData'),'desktop-errors.jsonl');await fs.appendFile(file,JSON.stringify({time:new Date().toISOString(),kind,message:safe})+'\n',{mode:0o600})}catch{}
+};
+process.on('uncaughtException',error=>{void diagnosticLog('uncaughtException',error.message).finally(()=>app.exit(1))});
+process.on('unhandledRejection',reason=>{void diagnosticLog('unhandledRejection',String((reason as Error)?.message||reason))});
 const dev=process.env.IRFAN_DEV==='1';
 protocol.registerSchemesAsPrivileged([{scheme:'irfan',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 interface LocalTool {name:string;risk:'SAFE'|'CONFIRM'|'BLOCKED';run(args:Record<string,unknown>):Promise<unknown>}
@@ -14,6 +21,20 @@ function createWindow(){
  if(dev)void window.loadURL('http://localhost:3000');else void window.loadURL('irfan://studio/index.html');
 }
 app.whenReady().then(()=>{
+ const broadcast=(status:string,payload:unknown={})=>BrowserWindow.getAllWindows().forEach(w=>{if(!w.isDestroyed())w.webContents.send('updates:status',{status,payload})});
+ if(app.isPackaged&&process.platform==='win32'){
+   autoUpdater.autoDownload=false;
+   autoUpdater.autoInstallOnAppQuit=false;
+   autoUpdater.on('update-available',info=>broadcast('available',{version:info.version}));
+   autoUpdater.on('update-not-available',()=>broadcast('latest'));
+   autoUpdater.on('download-progress',progress=>broadcast('downloading',{percent:Math.round(progress.percent)}));
+   autoUpdater.on('update-downloaded',info=>broadcast('downloaded',{version:info.version}));
+   autoUpdater.on('error',err=>broadcast('error',{message:String(err.message).slice(0,180)}));
+   ipcMain.handle('updates:check',async()=>{try{await autoUpdater.checkForUpdates();return {status:'checking'}}catch(e){return {status:'error',message:String(e)}}});
+   ipcMain.handle('updates:download',async()=>{await autoUpdater.downloadUpdate();return {status:'downloading'}});
+   ipcMain.handle('updates:install',()=>{autoUpdater.quitAndInstall(false,true);return {status:'installing'}});
+ }else ipcMain.handle('updates:check',()=>({status:'unavailable',message:'Updates are enabled only in a packaged Windows installer'}));
+
  if(!dev)protocol.handle('irfan',request=>{
    const url=new URL(request.url);
    if(url.hostname!=='studio')return new Response('Forbidden',{status:403});

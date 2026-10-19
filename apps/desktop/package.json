@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "concurrently -k \"tsc -w -p tsconfig.json\" \"wait-on http://localhost:3000 dist/main.js && cross-env IRFAN_DEV=1 electron .\"",
     "build": "tsc -p tsconfig.json",
-    "dist:win": "pnpm build && electron-builder --win nsis"
+    "dist:win": "pnpm build && electron-builder --win nsis --publish never",
+    "dist:win:release": "pnpm build && electron-builder --win nsis --publish always"
   },
   "dependencies": {
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "electron-updater": "^6.6.2"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",
@@ -46,6 +48,14 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "fahad-aslam8743",
+        "repo": "Fahad-s-Studio",
+        "releaseType": "release"
+      }
+    ]
   }
 }
