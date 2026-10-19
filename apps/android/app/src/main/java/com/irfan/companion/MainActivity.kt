@@ -30,9 +30,22 @@ class MainActivity: ComponentActivity() {
  private lateinit var backend:Backend
  private lateinit var tools:NativeTools
  private var speechId:String?=null
+ private var wakeModelRequest:String?=null
  private var voice:TextToSpeech?=null
  private var visible=false
  private val seen=mutableSetOf<String>()
+ private val modelPicker=registerForActivityResult(ActivityResultContracts.OpenDocument()){uri->
+    val id=wakeModelRequest;wakeModelRequest=null
+    if(id!=null){
+      if(uri==null)reply(id,JSONObject().put("cancelled",true))
+      else try {
+        val output=java.io.File(filesDir,"irfan_custom.ppn")
+        contentResolver.openInputStream(uri)?.use{input->output.outputStream().use{dest->input.copyTo(dest)}} ?:throw IllegalStateException("File unavailable")
+        require(output.length() in 1..5_000_000){"Custom wake model must be smaller than 5 MB"}
+        reply(id,JSONObject().put("modelReady",true))
+      }catch(e:Exception){error(id,e)}
+    }
+ }
  private val recognizer=registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { response->
      val text=response.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
      val id=speechId;speechId=null
@@ -109,6 +122,7 @@ class MainActivity: ComponentActivity() {
           "permissions.open"->runOnUiThread{permissionsDialog();reply(id,JSONObject().put("opened",true))}
           "speech"->runOnUiThread{speech(id)}
           "speak"->runOnUiThread{voice?.speak(args.optString("text").take(3000),TextToSpeech.QUEUE_FLUSH,null,"irfan");reply(id,JSONObject().put("spoken",true))}
+          "wake.selectModel"->runOnUiThread{wakeModelRequest=id;modelPicker.launch(arrayOf("*/*"))}
           "wake.start"->runOnUiThread{
              val key=args.optString("accessKey")
              if(key.isNotEmpty())SecureStore(this@MainActivity).put("porcupine_key",key)
