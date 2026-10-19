@@ -114,6 +114,7 @@ class MainActivity: ComponentActivity() {
          val args=msg.optJSONObject("args")?:JSONObject()
          when(msg.optString("method")){
           "session"->reply(id,JSONObject().put("paired",backend.paired).put("deviceId",backend.deviceId).put("platform","android"))
+          "session.unpair"->runOnUiThread{AlertDialog.Builder(this@MainActivity).setTitle("Unpair this phone?").setMessage("This clears the Android device token from Keystore storage. You may need a new PC pairing code.").setPositiveButton("Unpair"){_,_->backend.unpair();reply(id,JSONObject().put("paired",false));emit("irfan-paired",JSONObject().put("paired",false))}.setNegativeButton("Cancel"){_,_->reply(id,JSONObject().put("cancelled",true))}.show()}
           "pair"->work.execute{try{reply(id,backend.pair(args.optString("code")))}catch(e:Exception){error(id,e)}}
           "api"->work.execute{try{reply(id,backend.request(args.optString("route"),args.optString("verb","GET"),args.optJSONObject("body")))}catch(e:Exception){error(id,e)}}
           "tools.list"->reply(id,JSONObject().put("tools",tools.list()))
