@@ -280,12 +280,28 @@ export const toolInputSchemas = {
   "ui_automation": {
     "type": "object",
     "properties": {
-      "operation": {
+      "pid": {
+        "type": "number"
+      },
+      "automationId": {
+        "type": "string"
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "invoke",
+          "set_value",
+          "toggle"
+        ]
+      },
+      "value": {
         "type": "string"
       }
     },
     "required": [
-      "operation"
+      "pid",
+      "automationId",
+      "action"
     ],
     "additionalProperties": false
   }
