@@ -12,6 +12,7 @@ export default function AndroidPanel({request}:{request:(path:string,init?:Reque
  return <section className="glass rounded-xl p-4 space-y-3">
   <h2 className="text-cyan-300 text-xl">ANDROID COMPANION</h2>
   <p>{connected?'Linked to Jarvis account':'Unpaired — generate a code on the PC first'}</p>
+  {connected&&<button className="btn" onClick={()=>void run(async()=>{const r=await nativeCall('session.unpair');await reload();return r})}>Unpair this phone</button>}
   {!connected&&<div className="flex flex-col gap-2"><input className="input" value={code} onChange={e=>setCode(e.target.value)} placeholder="32-character one-time PC pairing code"/><button className="btn" disabled={busy} onClick={()=>void run(async()=>{const r=await nativeCall('pair',{code});setCode('');await reload();return r})}>Pair this phone</button></div>}
   <div className="border-t border-cyan-900 pt-2 space-y-2">
    <h3>Native tool permissions</h3>
