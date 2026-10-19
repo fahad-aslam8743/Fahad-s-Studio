@@ -2,3 +2,6 @@ name = "fahad-s-studio"
 main = "src/index.js"
 compatibility_date = "2026-10-18"
 workers_dev = true
+
+[triggers]
+crons = ["0 3 * * *"]
