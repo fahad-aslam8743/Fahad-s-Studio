@@ -21,7 +21,7 @@ export async function authorizeDevice(env,authorization){
  const rows=await db(env,'jarvis_devices','GET','?token_hash=eq.'+encodeURIComponent(await hashToken(token))+'&revoked_at=is.null&select=id,label,platform&limit=1');
  return rows[0]||null;
 }
-const safe={pc:new Set(['open_app','open_website','list_running_apps','window_control','lock_screen','video_render']),android:new Set(['open_app','settings_panel','flashlight','volume','screen_brightness','open_website'])};
+const safe={pc:new Set(['open_app','open_website','list_running_apps','window_control','lock_screen','video_render','whatsapp_draft']),android:new Set(['open_app','settings_panel','flashlight','volume','screen_brightness','open_website'])};
 const isUuid=v=>/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(v||'');
 export async function handleDeviceRoute(request,env,url,master,device){
  const path=url.pathname,method=request.method;
@@ -58,7 +58,14 @@ export async function handleDeviceRoute(request,env,url,master,device){
  }
  if(path==='/relay/submit'&&method==='POST'){
   const b=await request.json(),tool=String(b.tool||'');
-  if(!b.args||typeof b.args!=='object'||Array.isArray(b.args)||JSON.stringify(b.args).length>3500)return json({error:'Invalid arguments'},400);
+  if(!b.args||typeof b.args!=='object'||Array.isArray(b.args)||JSON.stringify(b.args).length>5000)return json({error:'Invalid arguments'},400);
+  if(tool==='whatsapp_draft'){
+   if(!device||b.target!=='pc')return json({error:'Only paired Android can request a WhatsApp draft on PC'},403);
+   const to=b.args?.to,body=b.args?.body;
+   if(typeof to!=='string'||!/^([1-9]\d{6,15}|[1-9]\d{6,15}@c\.us|[0-9]+(?:-[0-9]+)?@g\.us)$/.test(to)||
+      typeof body!=='string'||body.trim().length<1||body.length>4000)return json({error:'Provide international recipient number and message up to 4000 characters'},400);
+   b.args={to,body};
+  }
   let target;
   if(device&&b.target==='pc'){target='pc';if(!safe.pc.has(tool))return json({error:'PC tool is not remotely available'},403)}
   else if(master&&isUuid(b.target)){target='android:'+b.target;if(!safe.android.has(tool))return json({error:'Android tool is not remotely available'},403);
