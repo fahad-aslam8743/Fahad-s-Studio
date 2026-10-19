@@ -4,6 +4,12 @@ import {attachLocalAgent} from './local-agent';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
+const diagnosticLog=async(kind:string,message:string)=>{
+ const safe=message.replace(/Bearer\s+[^\s]+/gi,'Bearer [REDACTED]').replace(/(?:key|token|secret|password)\s*[:=]\s*[^\s,]+/gi,'credential=[REDACTED]').slice(0,500);
+ try{const file=path.join(app.getPath('userData'),'desktop-errors.jsonl');await fs.appendFile(file,JSON.stringify({time:new Date().toISOString(),kind,message:safe})+'\n',{mode:0o600})}catch{}
+};
+process.on('uncaughtException',error=>{void diagnosticLog('uncaughtException',error.message).finally(()=>app.exit(1))});
+process.on('unhandledRejection',reason=>{void diagnosticLog('unhandledRejection',String((reason as Error)?.message||reason))});
 const dev=process.env.IRFAN_DEV==='1';
 protocol.registerSchemesAsPrivileged([{scheme:'irfan',privileges:{standard:true,secure:true,supportFetchAPI:true,stream:true}}]);
 interface LocalTool {name:string;risk:'SAFE'|'CONFIRM'|'BLOCKED';run(args:Record<string,unknown>):Promise<unknown>}
