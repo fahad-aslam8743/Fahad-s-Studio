@@ -133,6 +133,30 @@ public class NativeWindows {
    'clipboard_read' {Add-Type -AssemblyName System.Windows.Forms;Out @{text=[System.Windows.Forms.Clipboard]::GetText()}}
    'clipboard_write' {Set-Clipboard -Value ([string]$a.text);Out @{written=$true}}
    'screenshot' {Add-Type -AssemblyName System.Windows.Forms;Add-Type -AssemblyName System.Drawing;$rect=[System.Windows.Forms.SystemInformation]::VirtualScreen;$bmp=New-Object System.Drawing.Bitmap($rect.Width,$rect.Height);$g=[System.Drawing.Graphics]::FromImage($bmp);$g.CopyFromScreen($rect.Left,$rect.Top,0,0,$bmp.Size);$file=Join-Path ([Environment]::GetFolderPath('MyPictures')) ('Jarvis-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'.png');$bmp.Save($file);$g.Dispose();$bmp.Dispose();Out @{path=$file}}
+   'ui_automation' {
+      Add-Type -AssemblyName UIAutomationClient
+      Add-Type -AssemblyName UIAutomationTypes
+      $proc=Get-Process -Id ([int]$a.pid) -ErrorAction Stop
+      if($proc.MainWindowHandle -eq 0){throw 'Target process has no accessible main window'}
+      $root=[System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+      if($null -eq $root){throw 'Target window is inaccessible'}
+      $condition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty,[string]$a.automationId)
+      $target=$root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
+      if($null -eq $target){throw 'AutomationId not found in selected window'}
+      $patternId=switch([string]$a.action){
+        'invoke' {[System.Windows.Automation.InvokePattern]::Pattern}
+        'toggle' {[System.Windows.Automation.TogglePattern]::Pattern}
+        'set_value' {[System.Windows.Automation.ValuePattern]::Pattern}
+      }
+      $pattern=$null
+      if(-not $target.TryGetCurrentPattern($patternId,[ref]$pattern)){throw 'Control does not expose requested UI Automation pattern'}
+      switch([string]$a.action){
+        'invoke' {$pattern.Invoke()}
+        'toggle' {$pattern.Toggle()}
+        'set_value' {if($pattern.Current.IsReadOnly){throw 'Control is read-only'};$pattern.SetValue([string]$a.value)}
+      }
+      Out @{ok=$true;pid=$proc.Id;automationId=$a.automationId;action=$a.action}
+   }
    default {throw 'Unknown or blocked tool'}
   }
 }catch{ @{error=$_.Exception.Message}|ConvertTo-Json -Compress;exit 1}
