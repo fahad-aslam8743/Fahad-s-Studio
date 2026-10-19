@@ -32,7 +32,7 @@ Windows actions run ONLY in Electron main via IPC (never from the Cloudflare Wor
 | sleep_pc | CONFIRM | Save work, issue sleep, verify wake | Hibernate/power settings may change outcome |
 | open_folder | SAFE | Open known existing directory; reject missing | Absolute validated by Windows filesystem |
 | find_file | SAFE | Find document in Documents; intentionally missing filename | Recursive search can be slow, 30-result cap |
-| open_file | SAFE | Open .txt file, reject missing | Default file association needed |
+| open_file | CONFIRM | Open .txt file, reject missing | Default file association needed |
 | move_file | CONFIRM | Create temp file, deny once, approve once; inspect destination | File only; no directories |
 | delete_file | CONFIRM | Deny once then move sample file to Recycle Bin | Recycle Bin availability varies |
 | screenshot | CONFIRM | Capture two monitors; inspect output in Pictures | May be black for secure/protected content |
