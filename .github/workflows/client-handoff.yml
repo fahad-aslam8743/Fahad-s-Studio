@@ -88,6 +88,9 @@ jobs:
           APK=$(find apps/android/app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -1)
           test -n "$APK"
           unzip -Z -1 "$APK" > /tmp/irfan-apk-entries.txt
+          echo "APK HTML, JavaScript, and compiled code entries (first 60):"
+          grep -E '(^assets/|^classes)' /tmp/irfan-apk-entries.txt | head -n 60 || true
+          echo "APK files: $(wc -l < /tmp/irfan-apk-entries.txt)"
           grep -Fqx 'assets/index.html' /tmp/irfan-apk-entries.txt
           grep -q '^assets/_next/' /tmp/irfan-apk-entries.txt
           grep -Eq '^classes([0-9]+)?[.]dex$' /tmp/irfan-apk-entries.txt
