@@ -9,10 +9,10 @@ export const MESSAGE_ID=/^[A-Za-z0-9_@.:-]{8,250}$/;
 export const MAX_MESSAGE=4000;
 
 export function cleanDraft(to:unknown,body:unknown,quotedMessageId?:unknown):WaDraft{
- if(typeof to!=='string'||(!PHONE.test(to.replace(/[\s+()-]/g,''))&&!CHAT.test(to)))throw Error('Choose an exact saved chat or enter a valid international phone number');
+ if(typeof to!=='string'||/[\r\n\u0000-\u001f]/.test(to)||(!PHONE.test(to.replace(/[ +()-]/g,''))&&!CHAT.test(to)))throw Error('Choose an exact saved chat or enter a valid international phone number');
  if(typeof body!=='string'||!body.trim()||body.length>MAX_MESSAGE||/\u0000/.test(body))throw Error('Message must contain 1–4000 characters');
  if(quotedMessageId!==undefined&&(typeof quotedMessageId!=='string'||!MESSAGE_ID.test(quotedMessageId)))throw Error('Invalid reply message ID');
- return {to:CHAT.test(to)?to:to.replace(/[\s+()-]/g,''),body:body.trim(),...(quotedMessageId?{quotedMessageId}:{})};
+ return {to:CHAT.test(to)?to:to.replace(/[ +()-]/g,''),body:body.trim(),...(quotedMessageId?{quotedMessageId}:{})};
 }
 export function cleanChatId(id:unknown):string{
  if(typeof id!=='string'||!CHAT.test(id))throw Error('Invalid WhatsApp chat identifier');
