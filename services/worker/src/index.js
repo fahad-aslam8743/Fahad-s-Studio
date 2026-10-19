@@ -6,7 +6,7 @@ async function gemini(env,model,body){const resp=await fetch('https://generative
 async function db(env,table,method='GET',query='',body){const r=await fetch(env.SUPABASE_URL+'/rest/v1/'+table+query,{method,headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json',Prefer:'return=representation'},...(body===undefined?{}:{body:JSON.stringify(body)})});if(!r.ok)throw Error('Database unavailable ('+r.status+')');return r.json();}
 const personas={calm:'Speak calmly, clearly and precisely.',energetic:'Be energetic, friendly and focused.',romantic:'Be warm and poetic but respectful, never manipulative.'};
 function textOf(r){return (r.candidates||[]).flatMap(c=>(c.content?.parts||[]).map(p=>p.text||'')).join('');}
-async function* streamGemini(env,model,body){
+export async function* streamGemini(env,model,body){
  const response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':streamGenerateContent?alt=sse',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify(body)});
  if(!response.ok||!response.body)throw Error('Gemini streaming provider returned '+response.status);
  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
