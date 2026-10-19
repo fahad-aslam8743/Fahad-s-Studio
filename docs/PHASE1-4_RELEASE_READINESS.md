@@ -24,6 +24,9 @@ Developer audit date: 2026-10-19. Current source: phase-1-4-completion. Producti
 - fal.ai backend queue and director prompts, editable plan, cost preview and explicit paid approval. Supabase RPC atomically reserves estimated daily budget at confirmation. UI displays engine, fal queue polling and local edit progress. DaVinci scripting not built pending separate approval.
 - Price and budget estimates are not guaranteed provider charges; do not promise premium outputs without asset review.
 
+## Live production smoke finding (2026-10-19)
+The currently deployed (older) Cloudflare Worker returned HTTP 200 JSON from /health. A request to /memories without credentials returned HTTP 503 instead of 401. In this implementation, that response indicates a missing required backend Runtime configuration. Do not claim the live deployment is operational until the owner supplies/revalidates runtime credentials and we retest. No secret values were requested or inspected in that smoke test.
+
 ## Automated release gate
 GitHub Actions Phases 1–4 Completion Gate has three independent jobs:
 1. Worker security, MIME, anti-injection, confirmation and true SSE streaming tests plus Cloudflare Wrangler dry-run.
