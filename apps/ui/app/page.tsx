@@ -29,7 +29,7 @@ export default function Home(){
  const reload=async()=>{try{setMemories(await request('/memories'));setError('')}catch(e){setError(String(e))}};
  async function play(text:string){if(!text||(!token&&!mobilePaired))return;if(isAndroid()){await nativeCall('speak',{text:text.slice(0,3000)});return}try{setSpeaking(true);const data=await request('/tts',{method:'POST',body:JSON.stringify({text,persona,gender,language:language==='auto'?'en':language})});const bytes=Uint8Array.from(atob(data.pcm),c=>c.charCodeAt(0));const wav=new Uint8Array(44+bytes.length);const dv=new DataView(wav.buffer);const str=(n:number,s:string)=>{for(let i=0;i<s.length;i++)wav[n+i]=s.charCodeAt(i)};str(0,'RIFF');dv.setUint32(4,36+bytes.length,true);str(8,'WAVEfmt ');dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);dv.setUint32(24,24000,true);dv.setUint32(28,48000,true);dv.setUint16(32,2,true);dv.setUint16(34,16,true);str(36,'data');dv.setUint32(40,bytes.length,true);wav.set(bytes,44);const url=URL.createObjectURL(new Blob([wav],{type:'audio/wav'}));const sound=new Audio(url);utterance.current=sound;sound.onended=()=>{URL.revokeObjectURL(url);setSpeaking(false)};await sound.play();}catch(e){setSpeaking(false);setError(String(e))}}
  function interrupt(){stop.current?.abort();utterance.current?.pause();utterance.current=null;setSpeaking(false);setBusy(false)}
- async function send(value=input){const message=value.trim();if(!message||(!token&&!mobilePaired))return;interrupt();setInput('');setError('');const history=messages.slice(-12);
+ async function send(value=input){const message=value.trim();if(!message)return;if(!token&&!mobilePaired){setError('Jarvis is not connected to the cloud backend. Open Settings and enter a working backend access token. The Mac static UI preview is not a live AI service.');return}interrupt();setInput('');setError('');const history=messages.slice(-12);
  if(isAndroid()){
    const w=/^(?:send|write|compose)\s+(?:a\s+)?(?:whatsapp|wa)(?:\s+message)?\s+to\s+(\+?[0-9][0-9 ()-]{6,20})\s+(?:saying|that\s+says|message)\s+([\s\S]+)$/i.exec(message);
    if(w){
@@ -83,8 +83,59 @@ export default function Home(){
    return
  }
  setMessages([...history,{role:'user',content:message},{role:'assistant',content:''}]);setBusy(true);const controller=new AbortController();stop.current=controller;let replyText='';try{const res=await fetch(apiUrl.replace(/\/$/,'')+'/chat',{method:'POST',headers:auth(),body:JSON.stringify({message,persona,history}),signal:controller.signal});if(!res.ok||!res.body)throw Error('Chat failed: '+res.status);const rd=res.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const {done,value}=await rd.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const blocks=buffer.split('\n\n');buffer=blocks.pop()||'';for(const block of blocks){const kind=block.match(/^event: (.*)$/m)?.[1],data=block.match(/^data: (.*)$/m)?.[1];if(!data)continue;const payload=JSON.parse(data);if(kind==='meta')setPersona(payload.persona);if(kind==='error')throw Error(payload.message);if(kind==='delta'){replyText+=payload.text;setMessages(old=>old.map((m,i)=>i===old.length-1?{...m,content:replyText}:m));}}}if(!controller.signal.aborted)await play(replyText)}catch(e){if(!controller.signal.aborted)setError(String(e))}finally{setBusy(false)}}
- async function startMic(){try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const ctx=new AudioContext();audioCtx.current=ctx;const src=ctx.createMediaStreamSource(stream);const a=ctx.createAnalyser();src.connect(a);analyser.current=a;const mime=['audio/webm','audio/mp4','audio/ogg'].find(x=>MediaRecorder.isTypeSupported(x));const rec=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);recorder.current=rec;chunks.current=[];rec.ondataavailable=e=>chunks.current.push(e.data);rec.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());await ctx.close();analyser.current=null;setRecording(false);const blob=new Blob(chunks.current,{type:rec.mimeType});try{const raw=await blob.arrayBuffer();let s='';const b=new Uint8Array(raw);for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);const {text}=await request('/stt',{method:'POST',body:JSON.stringify({audio:btoa(s),mime:blob.type.split(';')[0]})});await send(text)}catch(e){setError(String(e))}};rec.start();setRecording(true)}catch(e){setError(String(e))}}
- function mic(){if(isAndroid()){void nativeCall<{text:string}>('speech').then(r=>{if(r.text)void send(r.text)}).catch(e=>setError(String(e)));return}if(recording)recorder.current?.stop();else void startMic()}
+ async function startMic(){
+  if(!token){setError('Connect Jarvis to a working backend and save its access token in Settings before using live microphone transcription. A static Mac preview cannot transcribe audio through Gemini.');return}
+  let stream:MediaStream|null=null;let ctx:AudioContext|null=null;
+  try{
+    if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined')throw Error('Microphone recording is not supported by this browser');
+    stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    ctx=new AudioContext();audioCtx.current=ctx;
+    const source=ctx.createMediaStreamSource(stream),analyserNode=ctx.createAnalyser();
+    analyserNode.fftSize=1024;source.connect(analyserNode);analyser.current=analyserNode;
+    const mime=['audio/webm','audio/mp4','audio/ogg'].find(x=>MediaRecorder.isTypeSupported(x));
+    const rec=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);
+    recorder.current=rec;chunks.current=[];
+    rec.ondataavailable=e=>{if(e.data.size)chunks.current.push(e.data)};
+    const startedAt=performance.now(),samples=new Uint8Array(analyserNode.fftSize);
+    let heardSpeech=false,lastActive=startedAt;
+    const watchdog=window.setInterval(()=>{
+      if(rec.state!=='recording'){clearInterval(watchdog);return}
+      analyserNode.getByteTimeDomainData(samples);
+      let power=0;for(const b of samples){const x=(b-128)/128;power+=x*x}
+      const rms=Math.sqrt(power/samples.length),now=performance.now();
+      if(rms>0.035){heardSpeech=true;lastActive=now}
+      // End after speaking and 1.4s silence, or after 10s even in a noisy room.
+      if((heardSpeech&&now-startedAt>1800&&now-lastActive>1400)||now-startedAt>10000){
+        clearInterval(watchdog);if(rec.state==='recording')rec.stop();
+      }
+    },150);
+    rec.onstop=async()=>{
+      clearInterval(watchdog);stream?.getTracks().forEach(t=>t.stop());
+      try{await ctx?.close()}catch{}analyser.current=null;recorder.current=null;setRecording(false);
+      const blob=new Blob(chunks.current,{type:rec.mimeType});
+      if(blob.size<1500){setError('No clear speech was captured. Move closer to the microphone and try again.');return}
+      try{
+        const raw=await blob.arrayBuffer(),b=new Uint8Array(raw);
+        let binary='';for(let i=0;i<b.length;i+=8192)binary+=String.fromCharCode(...b.subarray(i,i+8192));
+        const result=await request('/stt',{method:'POST',body:JSON.stringify({audio:btoa(binary),mime:blob.type.split(';')[0]})});
+        const words=String(result?.text||'').trim();
+        if(!words)throw Error('I did not catch that. Try speaking again.');
+        await send(words);
+      }catch(e){setError('Voice transcription unavailable: '+String(e))}
+    };
+    rec.onerror=()=>{setError('Microphone recording failed. Check your system microphone permissions.');if(rec.state==='recording')rec.stop()};
+    rec.start();setRecording(true);setError('');
+  }catch(e){
+    stream?.getTracks().forEach(t=>t.stop());try{await ctx?.close()}catch{};
+    analyser.current=null;recorder.current=null;setRecording(false);
+    setError('Microphone unavailable: '+String(e));
+  }
+ }
+ function mic(){
+  if(isAndroid()){void nativeCall<{text:string}>('speech').then(r=>{if(r.text)void send(r.text)}).catch(e=>setError(String(e)));return}
+  if(recording){if(recorder.current?.state==='recording')recorder.current.stop()}
+  else void startMic();
+ }
  useEffect(()=>{if(isAndroid()){setIsMobileApp(true);void nativeCall<{paired:boolean}>('session').then(r=>setMobilePaired(r.paired)).catch(()=>{});const onPair=(e:Event)=>setMobilePaired(Boolean((e as CustomEvent).detail?.paired));const onSpeech=(e:Event)=>{const heard=(e as CustomEvent).detail?.text;if(heard)void send(heard)};window.addEventListener('irfan-paired',onPair);window.addEventListener('irfan-speech',onSpeech);return()=>{window.removeEventListener('irfan-paired',onPair);window.removeEventListener('irfan-speech',onSpeech)}};void window.irfan?.listTools().then(setToolList).catch(()=>{});void window.irfan?.loadSettings?.().then(v=>{if(v.status==='loaded'){if(v.apiUrl)setApiUrl(v.apiUrl);if(v.token)setToken(v.token)}}).catch(()=>{});return()=>{stop.current?.abort();utterance.current?.pause()}},[]);
  async function tryTool(){try{if(!window.irfan)throw Error('Local tools require Electron');const out=await window.irfan.propose(toolName,JSON.parse(toolArgs));if(out.status==='confirmation_required')setPending({id:out.id,tool:out.tool,args:out.args});else setToolResult(JSON.stringify(out));setError('')}catch(e){setError(String(e))}}
  async function decideTool(approved:boolean){if(!pending||!window.irfan)return;try{setToolResult(JSON.stringify(await window.irfan.decide(pending.id,approved)));setError('')}catch(e){setError(String(e))}finally{setPending(null)}}
