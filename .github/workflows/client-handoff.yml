@@ -1,0 +1,136 @@
+name: Client Handoff - Windows and Android
+on:
+  push:
+    branches: [client-handoff-windows-android]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core-api-security:
+    runs-on: ubuntu-latest
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: {version: 10.18.0}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm --filter @irfan/worker test
+      - run: pnpm --filter @irfan/desktop build
+      - run: node --test apps/desktop/tests/whatsapp.test.cjs
+      - run: node --check services/worker/src/devices.js
+      - run: npx --yes wrangler@4 deploy --dry-run --config services/worker/wrangler.toml
+        env: {CLOUDFLARE_ACCOUNT_ID: 54be6cc8b4c78a417dc4eecb3cd4fc56}
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: {version: 10.18.0}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm --filter @irfan/ui build
+      - name: Native PowerShell syntax check
+        shell: pwsh
+        run: |
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path apps/desktop/scripts/tools.ps1),[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { throw ($errors | Out-String) }
+      - run: pnpm --filter @irfan/desktop dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: pnpm --filter @irfan/desktop verify:windows
+      - run: node --test apps/desktop/tests/whatsapp.test.cjs
+      - name: Windows installed executable launch smoke test
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "apps/desktop/release/win-unpacked" -Filter "*.exe" | Select-Object -First 1
+          if (-not $exe) { throw 'No packaged Windows executable' }
+          $p=Start-Process -FilePath $exe.FullName -ArgumentList '--disable-gpu' -PassThru
+          Start-Sleep -Seconds 9
+          if ($p.HasExited) { throw "Jarvis exited unexpectedly during Windows launch: $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        with:
+          name: irfan-client-windows-unsigned-nsis
+          path: apps/desktop/release/*.exe
+          if-no-files-found: error
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - uses: pnpm/action-setup@v4
+        with: {version: 10.18.0}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.11.1'}
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm --filter @irfan/ui build
+      - name: Copy exactly the bundled desktop Next.js interface
+        run: |
+          test -f apps/ui/out/index.html
+          mkdir -p apps/android/app/src/main/assets
+          cp -a apps/ui/out/. apps/android/app/src/main/assets/
+      - run: gradle -p apps/android :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify installable Android APK includes JavaScript UI
+        run: |
+          APK=$(find apps/android/app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -1)
+          test -n "$APK"
+          unzip -Z -1 "$APK" > /tmp/irfan-apk-entries.txt
+          echo "APK HTML, JavaScript, and compiled code entries (first 60):"
+          grep -E '(^assets/|^classes)' /tmp/irfan-apk-entries.txt | head -n 60 || true
+          echo "APK files: $(wc -l < /tmp/irfan-apk-entries.txt)"
+          grep -Fqx 'assets/index.html' /tmp/irfan-apk-entries.txt
+          grep -q '^assets/_next/' /tmp/irfan-apk-entries.txt
+          grep -Eq '^classes([0-9]+)?[.]dex$' /tmp/irfan-apk-entries.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: irfan-client-android-sideload-debug-apk
+          path: apps/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+  android-emulator:
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: irfan-client-android-sideload-debug-apk
+          path: android-apk
+      - name: Boot Android 13, install actual distributed APK and launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: |
+            adb install -r android-apk/app-debug.apk
+            adb shell am start -W -n com.irfan.companion/.MainActivity
+            sleep 12
+            adb shell pidof com.irfan.companion
+            if adb logcat -d -t 1000 | grep -F 'Process: com.irfan.companion'; then exit 1; fi
+            adb shell screencap -p /sdcard/irfan-home.png
+            adb pull /sdcard/irfan-home.png android-emulator-home.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: irfan-android-emulator-screenshot
+          path: android-emulator-home.png
+          if-no-files-found: ignore
