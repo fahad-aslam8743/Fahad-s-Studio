@@ -19,7 +19,7 @@ declare global {interface Window {irfan?:WhatsAppNative & {platform:string;versi
 const DEFAULT_API=process.env.NEXT_PUBLIC_IRFAN_API_URL||'https://fahad-s-studio.notxfahad.workers.dev';
 export default function Home(){
  const [waDraft,setWaDraft]=useState<{nonce:number;recipient:string;body:string}|null>(null);const [toolName,setToolName]=useState('list_running_apps'),[toolArgs,setToolArgs]=useState('{}'),[toolList,setToolList]=useState<Array<{name:string;risk:string;description:string}>>([]),[pending,setPending]=useState<{id:string;tool:string;args:unknown}|null>(null),[toolResult,setToolResult]=useState(''); const [apiUrl,setApiUrl]=useState(DEFAULT_API); const [mobilePaired,setMobilePaired]=useState(false),[isMobileApp,setIsMobileApp]=useState(false);const [engine,setEngine]=useState<'local'|'fal'>('local'),[unreadIds,setUnreadIds]=useState<string[]>([]);const [tab,setTab]=useState<'console'|'settings'|'email'|'video'|'android'|'devices'|'whatsapp'>('console'),[messages,setMessages]=useState<Line[]>([]),[input,setInput]=useState(''),[persona,setPersona]=useState('calm'),[gender,setGender]=useState<'male'|'female'>('female'),[language,setLanguage]=useState('auto'),[wakeName,setWakeName]=useState('Jarvis'),[low,setLow]=useState(false),[token,setToken]=useState(''),[busy,setBusy]=useState(false),[recording,setRecording]=useState(false),[speaking,setSpeaking]=useState(false),[memories,setMemories]=useState<Array<{id:string;fact:string;importance:number}>>([]),[fact,setFact]=useState(''),[error,setError]=useState('');
- const recorder=useRef<MediaRecorder|null>(null),chunks=useRef<Blob[]>([]),audioCtx=useRef<AudioContext|null>(null),analyser=useRef<AnalyserNode|null>(null),utterance=useRef<HTMLAudioElement|null>(null),stop=useRef<AbortController|null>(null);
+ const recorder=useRef<MediaRecorder|null>(null),chunks=useRef<Blob[]>([]),audioCtx=useRef<AudioContext|null>(null),analyser=useRef<AnalyserNode|null>(null),utterance=useRef<HTMLAudioElement|null>(null),activeChat=useRef<string|null>(null),stop=useRef<AbortController|null>(null);
  useEffect(()=>{try{const saved=window.localStorage.getItem('jarvis-wake-name');if(saved)setWakeName(saved)}catch{}},[]);
  useEffect(()=>{try{window.localStorage.setItem('jarvis-wake-name',wakeName.trim().slice(0,24)||'Jarvis')}catch{}},[wakeName]);
  const auth=()=>({Authorization:'Bearer '+token,'Content-Type':'application/json'});
@@ -30,7 +30,7 @@ export default function Home(){
  };
  const reload=async()=>{try{setMemories(await request('/memories'));setError('')}catch(e){setError(String(e))}};
  async function play(text:string){if(!text||(!token&&!mobilePaired))return;if(isAndroid()){await nativeCall('speak',{text:text.slice(0,3000),language,gender,persona});return}try{setSpeaking(true);const speechLanguage=language==='auto'?(/[\u0600-\u06FF]/.test(text)?'ur':/[\u0900-\u097F]/.test(text)?'hi':'en'):language;const data=await request('/tts',{method:'POST',body:JSON.stringify({text,persona,gender,language:speechLanguage})});const bytes=Uint8Array.from(atob(data.pcm),c=>c.charCodeAt(0));const wav=new Uint8Array(44+bytes.length);const dv=new DataView(wav.buffer);const str=(n:number,s:string)=>{for(let i=0;i<s.length;i++)wav[n+i]=s.charCodeAt(i)};str(0,'RIFF');dv.setUint32(4,36+bytes.length,true);str(8,'WAVEfmt ');dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);dv.setUint32(24,24000,true);dv.setUint32(28,48000,true);dv.setUint16(32,2,true);dv.setUint16(34,16,true);str(36,'data');dv.setUint32(40,bytes.length,true);wav.set(bytes,44);const url=URL.createObjectURL(new Blob([wav],{type:'audio/wav'}));const sound=new Audio(url);utterance.current=sound;sound.onended=()=>{URL.revokeObjectURL(url);setSpeaking(false)};await sound.play();}catch(e){setSpeaking(false);setError(String(e))}}
- function interrupt(){stop.current?.abort();utterance.current?.pause();utterance.current=null;setSpeaking(false);setBusy(false)}
+ function interrupt(){stop.current?.abort();activeChat.current=null;if(isAndroid())void nativeCall('stopSpeaking').catch(()=>{});utterance.current?.pause();utterance.current=null;setSpeaking(false);setBusy(false)}
  async function send(value=input){const message=value.trim();if(!message)return;if(!token&&!mobilePaired){setError(isAndroid()?'This phone is not paired yet. Open Android in the top menu and pair it with your Windows JARVIS app before sending messages.':'JARVIS is not connected to the cloud backend. Enter the backend URL and access token in Settings.');if(isAndroid())setTab('android');return}interrupt();setInput('');setError('');const history=messages.slice(-12);
  if(isAndroid()){
    const w=/^(?:send|write|compose)\s+(?:a\s+)?(?:whatsapp|wa)(?:\s+message)?\s+to\s+(\+?[0-9][0-9 ()-]{6,20})\s+(?:saying|that\s+says|message)\s+([\s\S]+)$/i.exec(message);
@@ -78,10 +78,26 @@ export default function Home(){
  }catch(err){setError('Desktop tool planning unavailable: '+String(err));}
  }
  if(isAndroid()){
-   setBusy(true);
-   try{const r=await request('/chat',{method:'POST',body:JSON.stringify({message,persona,history})});const answer=String(r.text||'JARVIS returned an empty response. Check the connection and try again.');setMessages([...history,{role:'user',content:message},{role:'assistant',content:answer}]);await play(answer)}
-   catch(e){const reason=String(e);setError(reason);setMessages([...history,{role:'user',content:message},{role:'assistant',content:'I could not complete that request. '+reason}])}
-   finally{setBusy(false)}
+   const streamId='chat-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+   activeChat.current=streamId;setBusy(true);
+   setMessages([...history,{role:'user',content:message},{role:'assistant',content:''}]);
+   const onDelta=(event:Event)=>{const detail=(event as CustomEvent<{streamId:string;text:string}>).detail;if(detail?.streamId!==streamId||activeChat.current!==streamId)return;setMessages(old=>old.map((m,i)=>i===old.length-1&&m.role==='assistant'?{...m,content:m.content+detail.text}:m))};
+   window.addEventListener('irfan-chat-delta',onDelta);
+   try{
+     const r=await request('/chat',{method:'POST',body:JSON.stringify({message,persona,history,streamId})});
+     if(activeChat.current!==streamId)return;
+     const answer=String(r.text||'JARVIS returned an empty response. Check the connection and try again.');
+     setMessages(old=>old.map((m,i)=>i===old.length-1&&m.role==='assistant'?{...m,content:answer}:m));
+     await play(answer)
+   }catch(e){
+     if(activeChat.current!==streamId)return;
+     const reason=String(e);setError(reason);
+     setMessages(old=>old.map((m,i)=>i===old.length-1&&m.role==='assistant'?{...m,content:'I could not complete that request. '+reason}:m))
+   }finally{
+     window.removeEventListener('irfan-chat-delta',onDelta);
+     if(activeChat.current===streamId)activeChat.current=null;
+     setBusy(false)
+   }
    return
  }
  setMessages([...history,{role:'user',content:message},{role:'assistant',content:''}]);setBusy(true);const controller=new AbortController();stop.current=controller;let replyText='';try{const res=await fetch(apiUrl.replace(/\/$/,'')+'/chat',{method:'POST',headers:auth(),body:JSON.stringify({message,persona,history}),signal:controller.signal});if(!res.ok||!res.body)throw Error('Chat failed: '+res.status);const rd=res.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const {done,value}=await rd.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const blocks=buffer.split('\n\n');buffer=blocks.pop()||'';for(const block of blocks){const kind=block.match(/^event: (.*)$/m)?.[1],data=block.match(/^data: (.*)$/m)?.[1];if(!data)continue;const payload=JSON.parse(data);if(kind==='meta')setPersona(payload.persona);if(kind==='error')throw Error(payload.message);if(kind==='delta'){replyText+=payload.text;setMessages(old=>old.map((m,i)=>i===old.length-1?{...m,content:replyText}:m));}}}if(!controller.signal.aborted)await play(replyText)}catch(e){if(!controller.signal.aborted)setError(String(e))}finally{setBusy(false)}}
