@@ -34,31 +34,54 @@ class Backend(context: Context) {
         return try {
             val code=connection.responseCode
             val stream=if(code in 200..299) connection.inputStream else connection.errorStream
-            val result=stream?.bufferedReader()?.use{it.readText().take(800000)} ?: "{}"
-            if(code !in 200..299)throw IllegalStateException("Server $code: "+JSONObject(result).optString("error","Request failed"))
-            if(result.trimStart().startsWith("["))JSONObject().put("items",JSONArray(result))
-            else if(connection.contentType?.contains("text/event-stream")==true){
+            if(code !in 200..299){
+                val result=stream?.bufferedReader()?.use{it.readText().take(800000)} ?: "{}"
+                throw IllegalStateException("Server $code: "+try{JSONObject(result).optString("error","Request failed")}catch(_:Exception){"Request failed"})
+            }
+            if(connection.contentType?.contains("text/event-stream")==true){
                 val chunks=StringBuilder()
                 var serverError:String?=null
-                for(block in result.split("\n\n")){
-                    val event=block.lineSequence().firstOrNull{it.startsWith("event: ")}?.removePrefix("event: ")?.trim()
-                    val line=block.lineSequence().firstOrNull{it.startsWith("data: ")}?.removePrefix("data: ") ?: continue
-                    try {
-                        val payload=JSONObject(line)
-                        when(event){
-                            "delta" -> chunks.append(payload.optString("text"))
-                            "done" -> if(chunks.isEmpty())chunks.append(payload.optString("text"))
-                            "error" -> serverError=payload.optString("message","JARVIS could not generate a response")
+                val streamId=body?.optString("streamId").orEmpty()
+                stream?.bufferedReader()?.use{reader->
+                    var event=""
+                    val data=StringBuilder()
+                    while(true){
+                        val line=reader.readLine()?:break
+                        if(line.isEmpty()){
+                            if(data.isNotEmpty()){
+                                try{
+                                    val payload=JSONObject(data.toString())
+                                    when(event){
+                                        "delta"->{
+                                            val piece=payload.optString("text")
+                                            chunks.append(piece)
+                                            if(streamId.isNotBlank())MainActivity.foreground?.get()?.emit("irfan-chat-delta",JSONObject().put("streamId",streamId).put("text",piece))
+                                        }
+                                        "done"->if(chunks.isEmpty())chunks.append(payload.optString("text"))
+                                        "error"->serverError=payload.optString("message","JARVIS could not generate a response")
+                                    }
+                                }catch(_:Exception){}
+                            }
+                            event=""
+                            data.setLength(0)
+                        }else if(line.startsWith("event: ")){
+                            event=line.removePrefix("event: ").trim()
+                        }else if(line.startsWith("data: ")){
+                            if(data.isNotEmpty())data.append('\n')
+                            data.append(line.removePrefix("data: "))
                         }
-                    } catch(_:Exception) {}
+                    }
                 }
-                if(serverError!=null)throw IllegalStateException(serverError)
+                serverError?.let{throw IllegalStateException(it)}
                 if(chunks.isEmpty())throw IllegalStateException("JARVIS returned an empty response. Check the connection and try again.")
                 JSONObject().put("text",chunks.toString())
-            } else JSONObject(result)
-        } catch (_:UnknownHostException) { throw IllegalStateException("Internet connection unavailable. Jarvis will reconnect when online.") }
+            }else{
+                val result=stream?.bufferedReader()?.use{it.readText().take(800000)} ?: "{}"
+                if(result.trimStart().startsWith("["))JSONObject().put("items",JSONArray(result)) else JSONObject(result)
+            }
+        } catch (_:UnknownHostException) { throw IllegalStateException("Internet connection unavailable. JARVIS will reconnect when online.") }
           catch (_:SocketTimeoutException) { throw IllegalStateException("The server took too long. Please try again.") }
-          catch (_:ConnectException) { throw IllegalStateException("Jarvis cannot reach the server. Check your connection.") }
+          catch (_:ConnectException) { throw IllegalStateException("JARVIS cannot reach the server. Check your connection.") }
           finally { connection.disconnect() }
     }
     fun pair(code: String): JSONObject {
