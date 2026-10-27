@@ -69,14 +69,14 @@ try {
   let detail = 'Gemini generateContent responded in ' + elapsedMs + ' ms.';
   if (!ok) {
     const providerDetail = typeof r.value?.error === 'string'
-      ? r.value.error.replace(/[\\r\\n|]/g, ' ').slice(0, 160)
+      ? r.value.error.replace(/[\r\n|]/g, ' ').slice(0, 160)
       : '';
     detail = 'Non-stream Gemini probe returned ' + statusText(r.response) +
       ' after ' + elapsedMs + ' ms' + (providerDetail ? ': ' + providerDetail : '. No safe provider detail was returned.');
   }
   record('Gemini non-stream API probe', ok ? 'PASS' : 'FAIL', detail);
 } catch (error) {
-  const reason = String(error?.message || error || 'unknown request error').replace(/[\\r\\n|]/g, ' ').slice(0, 160);
+  const reason = String(error?.message || error || 'unknown request error').replace(/[\r\n|]/g, ' ').slice(0, 160);
   record('Gemini non-stream API probe', 'FAIL', 'Probe request failed: ' + reason);
 }
 
