@@ -3,5 +3,9 @@ main = "src/index.js"
 compatibility_date = "2026-10-18"
 workers_dev = true
 
+# Cloudflare Workers Builds invokes "wrangler preview" for preview builds.
+# This empty block is required by Wrangler v4 for that command.
+[previews]
+
 [triggers]
 crons = ["0 3 * * *"]
