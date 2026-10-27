@@ -3,6 +3,12 @@ on:
   push:
     branches: [client-handoff-windows-android]
   workflow_dispatch:
+    inputs:
+      run_live_acceptance:
+        description: "Run authenticated backend checks; no email send or paid video submission"
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 jobs:
@@ -43,6 +49,25 @@ jobs:
           $tokens=$null; $errors=$null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path apps/desktop/scripts/tools.ps1),[ref]$tokens,[ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { throw ($errors | Out-String) }
+      - name: Prepare optional Windows Authenticode certificate
+        id: windows_signing
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+            "enabled=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host "::warning::No Windows code-signing certificate configured; artifact will be an unsigned test installer."
+            exit 0
+          }
+          $bytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64)
+          $cert = Join-Path $env:RUNNER_TEMP 'jarvis-studio-authenticode.pfx'
+          [System.IO.File]::WriteAllBytes($cert, $bytes)
+          if ((Get-Item $cert).Length -lt 256) { throw 'Windows signing certificate is too small to be valid.' }
+          "CSC_LINK=$cert" >> $env:GITHUB_ENV
+          "CSC_KEY_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
+          "enabled=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - run: pnpm --filter @irfan/desktop dist:win
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -57,9 +82,27 @@ jobs:
           Start-Sleep -Seconds 9
           if ($p.HasExited) { throw "Jarvis exited unexpectedly during Windows launch: $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-      - uses: actions/upload-artifact@v4
+      - name: Verify Windows installer signature
+        if: ${{ steps.windows_signing.outputs.enabled == 'true' }}
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem 'apps/desktop/release' -Filter '*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'No Windows installer found.' }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if ($signature.Status -ne 'Valid') { throw "Installer signature is not valid: $($signature.Status)" }
+          Write-Host "Windows Authenticode signature is valid."
+      - name: Upload unsigned Windows test installer
+        if: ${{ steps.windows_signing.outputs.enabled != 'true' }}
+        uses: actions/upload-artifact@v4
         with:
           name: irfan-client-windows-unsigned-nsis
+          path: apps/desktop/release/*.exe
+          if-no-files-found: error
+      - name: Upload signed Windows release installer
+        if: ${{ steps.windows_signing.outputs.enabled == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: irfan-client-windows-signed-nsis
           path: apps/desktop/release/*.exe
           if-no-files-found: error
   android:
@@ -98,6 +141,51 @@ jobs:
         with:
           name: irfan-client-android-sideload-debug-apk
           path: apps/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - name: Prepare optional owner-controlled Android release keystore
+        id: android_signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -eu
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ] || [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ] || [ -z "${ANDROID_KEY_ALIAS:-}" ] || [ -z "${ANDROID_KEY_PASSWORD:-}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Android release-signing secrets missing; only the debug APK is available."
+            exit 0
+          fi
+          keyfile="$RUNNER_TEMP/jarvis-owner-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keyfile"
+          test -s "$keyfile"
+          keytool -list -keystore "$keyfile" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          echo "ANDROID_KEYSTORE_FILE=$keyfile" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+      - name: Assemble signed Android release APK
+        if: ${{ steps.android_signing.outputs.enabled == 'true' }}
+        run: gradle -p apps/android :app:assembleRelease --no-daemon --stacktrace
+      - name: Verify signed Android release APK
+        if: ${{ steps.android_signing.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          set -eu
+          apk="$(find apps/android/app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)"
+          test -n "$apk"
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
+          apksigner="$(find "$sdk_root/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          test -n "$apksigner"
+          "$apksigner" verify --verbose "$apk"
+      - name: Upload signed Android release APK
+        if: ${{ steps.android_signing.outputs.enabled == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: irfan-client-android-release-signed
+          path: apps/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
   android-emulator:
     needs: android
@@ -153,4 +241,25 @@ jobs:
         with:
           name: irfan-android-emulator-screenshot
           path: android-emulator-home.png
+          if-no-files-found: ignore
+
+  live-acceptance:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_acceptance }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run authenticated, non-destructive release smoke checks
+        env:
+          JARVIS_BASE_URL: ${{ vars.JARVIS_BASE_URL }}
+          JARVIS_APP_TOKEN: ${{ secrets.JARVIS_APP_TOKEN }}
+        run: node scripts/release-acceptance.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jarvis-live-acceptance-report
+          path: release-acceptance-report.md
           if-no-files-found: ignore
