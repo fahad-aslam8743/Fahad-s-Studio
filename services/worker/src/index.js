@@ -14,11 +14,38 @@ function providerRequestError(provider,error,timeoutMs){
  if(error?.name==='TimeoutError'||error?.name==='AbortError')return new Error(provider+' timed out after '+timeoutMs+' ms');
  return new Error(provider+' request failed: '+(safeProviderMessage(error?.message||error)||'network error'));
 }
+const transientProviderStatuses=new Set([408,429,500,502,503,504]);
+const waitForProviderRetry=(ms)=>new Promise(resolve=>setTimeout(resolve,ms));
+function geminiModelCandidates(env,requestedModel){
+ const primary=requestedModel||env.GEMINI_MODEL||'gemini-3.8-flash';
+ const fallback=env.GEMINI_FALLBACK_MODEL||'gemini-3.6-flash';
+ return [...new Set([primary,fallback].filter(Boolean))];
+}
+async function geminiResponse(env,model,operation,body,timeoutMs,provider){
+ const candidates=geminiModelCandidates(env,model);let lastError;
+ for(let index=0;index<candidates.length;index++){
+  const candidate=candidates[index];let response;
+  try{
+   response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(candidate)+':'+operation,{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs)});
+  }catch(error){
+   lastError=providerRequestError(provider,error,timeoutMs);
+   if(index===candidates.length-1)throw lastError;
+   await waitForProviderRetry(250+Math.floor(Math.random()*250));
+   continue;
+  }
+  if(!response.ok){
+   const providerError=new Error(await providerHttpError(provider,response));
+   if(!transientProviderStatuses.has(response.status)||index===candidates.length-1)throw providerError;
+   lastError=providerError;
+   await waitForProviderRetry(250+Math.floor(Math.random()*250));
+   continue;
+  }
+  return response;
+ }
+ throw lastError||new Error(provider+' failed without a response');
+}
 async function gemini(env,model,body,timeoutMs=10000){
- let resp;
- try{resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs)})}
- catch(error){throw providerRequestError('AI provider',error,timeoutMs)}
- if(!resp.ok)throw new Error(await providerHttpError('AI provider',resp));
+ const resp=await geminiResponse(env,model,'generateContent',body,timeoutMs,'AI provider');
  return resp.json();
 }
 async function db(env,table,method='GET',query='',body){const r=await fetch(env.SUPABASE_URL+'/rest/v1/'+table+query,{method,headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json',Prefer:'return=representation'},...(body===undefined?{}:{body:JSON.stringify(body)})});if(!r.ok)throw Error('Database unavailable ('+r.status+')');return r.json();}
@@ -36,10 +63,8 @@ async function verifyDailyAiBudget(env,subject){
 const personas={calm:'Speak calmly, clearly and precisely.',energetic:'Be energetic, friendly and focused.',romantic:'Be warm and poetic but respectful, never manipulative.'};
 function textOf(r){return (r.candidates||[]).flatMap(c=>(c.content?.parts||[]).map(p=>p.text||'')).join('');}
 export async function* streamGemini(env,model,body){
- const timeoutMs=10000;let response;
- try{response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':streamGenerateContent?alt=sse',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs)})}
- catch(error){throw providerRequestError('Gemini streaming provider',error,timeoutMs)}
- if(!response.ok)throw new Error(await providerHttpError('Gemini streaming provider',response));
+ const timeoutMs=10000;
+ const response=await geminiResponse(env,model,'streamGenerateContent?alt=sse',body,timeoutMs,'Gemini streaming provider');
  if(!response.body)throw Error('Gemini streaming provider returned no response body (HTTP '+response.status+')');
  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
  while(true){
