@@ -47,7 +47,7 @@ export async function handleVideo(request,env,path,gemini,textOf){
  if(path==='/video/models'&&method==='GET')return out(VIDEO_MODELS);
  if(path==='/video/director'&&method==='POST'){
   const b=await request.json();if(typeof b.idea!=='string'||b.idea.length>1200||!b.idea.trim())return out({error:'Invalid idea'},400);
-  const r=await gemini(env,env.GEMINI_MODEL||'gemini-2.5-flash',{systemInstruction:{parts:[{text:DIRECTOR_TEMPLATE}]},contents:[{role:'user',parts:[{text:JSON.stringify({idea:b.idea,aspectRatio:b.aspectRatio||'16:9'})}]}],generationConfig:{responseMimeType:'application/json'}});
+  const r=await gemini(env,env.GEMINI_MODEL||'gemini-3.8-flash',{systemInstruction:{parts:[{text:DIRECTOR_TEMPLATE}]},contents:[{role:'user',parts:[{text:JSON.stringify({idea:b.idea,aspectRatio:b.aspectRatio||'16:9'})}]}],generationConfig:{responseMimeType:'application/json'}});
   let result;try{result=JSON.parse(textOf(r))}catch{return out({error:'Director model returned invalid JSON'},502)}
   return out({brief:result,approvalRequired:true})
  }
@@ -55,7 +55,7 @@ export async function handleVideo(request,env,path,gemini,textOf){
   const b=await request.json();
   if(typeof b.request!=='string'||b.request.length>1000||!b.request.trim())return out({error:'Invalid editing request'},400);
   const prompt='Act as a LOCAL FFmpeg edit PLANNER ONLY. No execution. Return only valid JSON object with keys input (absolute provided file path), output (absolute provided output path), steps (array) and questions (array). Each step is an object with type and typed arguments. Allowed types: trim/cut {start,end}, merge {files}, crop/resize {width,height}, aspect {ratio:9:16|16:9|1:1|4:5}, speed {factor}, music {file,volume}, normalize {}, subtitles {srt} or {autoWhisper:true,model}, text {text,size}, fade {inSeconds,outSeconds,durationSeconds}, transition {file,duration,offset}, filter {preset:cinematic|warm|cool|vintage|grayscale|vivid}, export {preset:youtube|reels|tiktok|shorts}. Never produce shell commands. Do not invent file paths. If inputs are missing, return questions and empty steps. All plans are reviewed and confirmed by the user before local execution. Input: '+JSON.stringify({request:b.request,input:b.input,output:b.output});
-  const r=await gemini(env,env.GEMINI_MODEL||'gemini-2.5-flash',{contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json'}});
+  const r=await gemini(env,env.GEMINI_MODEL||'gemini-3.8-flash',{contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json'}});
   try{return out({plan:JSON.parse(textOf(r)),approvalRequired:true})}catch{return out({error:'Invalid edit plan'},502)}
  }
  if(path==='/video/prepare'&&method==='POST'){

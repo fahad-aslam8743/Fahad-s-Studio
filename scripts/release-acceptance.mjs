@@ -56,13 +56,27 @@ try {
 try {
   const r = await request('/chat', { method: 'POST', body: { message: 'For this release check, reply with exactly JARVIS_RELEASE_OK and nothing else.', persona: 'calm', history: [], diagnostic: true } });
   const blocks = r.raw.split(/\r?\n\r?\n/);
-  const doneBlock = blocks.find(x => /^event: done(?:\r?\n|$)/.test(x));
-  const errBlock = blocks.find(x => /^event: error(?:\r?\n|$)/.test(x));
-  const line = doneBlock && doneBlock.split(/\r?\n/).find(x => x.startsWith('data:'));
-  let payload = null;
-  try { payload = line ? JSON.parse(line.slice(5).trim()) : null; } catch {}
-  const ok = r.response.status === 200 && payload?.text?.includes('JARVIS_RELEASE_OK') && !errBlock;
-  record('Gemini streaming chat', ok ? 'PASS' : 'FAIL', ok ? 'Authenticated Gemini streaming completed.' : 'Gemini chat did not complete (' + statusText(r.response) + '). Response content was not logged.');
+  function eventPayload(name) {
+    const block = blocks.find(x => new RegExp('^event: ' + name + '(?:\\r?\\n|$)').test(x));
+    const line = block && block.split(/\r?\n/).find(x => x.startsWith('data:'));
+    try { return line ? JSON.parse(line.slice(5).trim()) : null; } catch { return null; }
+  }
+  const donePayload = eventPayload('done');
+  const errorPayload = eventPayload('error');
+  const ok = r.response.status === 200 && donePayload?.text?.includes('JARVIS_RELEASE_OK') && !errorPayload;
+  let detail = 'Authenticated Gemini streaming completed.';
+  if (!ok) {
+    if (typeof errorPayload?.message === 'string' && errorPayload.message.trim()) {
+      detail = 'Worker stream error: ' + errorPayload.message.replace(/[\r\n|]/g, ' ').slice(0, 180);
+    } else if (r.response.status !== 200) {
+      detail = 'Gemini chat returned ' + statusText(r.response) + '. Response content was not logged.';
+    } else if (!donePayload) {
+      detail = 'HTTP 200, but the stream did not include a done event. Response content was not logged.';
+    } else {
+      detail = 'Stream completed without the expected diagnostic marker. Response content was not logged.';
+    }
+  }
+  record('Gemini streaming chat', ok ? 'PASS' : 'FAIL', detail);
 } catch { record('Gemini streaming chat', 'FAIL', 'Authenticated Gemini request could not be completed.'); }
 
 let deviceId = null;
