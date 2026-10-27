@@ -2,7 +2,7 @@
 name: Client Handoff - Windows and Android
 on:
   push:
-    branches: [client-handoff-windows-android, fix/android-play-protect-release]
+    branches: [client-handoff-windows-android, fix/android-play-protect-release, fix/jarvis-mobile-functional-pass]
   workflow_dispatch:
     inputs:
       run_live_acceptance:
