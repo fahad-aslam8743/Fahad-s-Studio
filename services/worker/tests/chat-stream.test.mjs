@@ -26,3 +26,21 @@ test('streaming provider timeout is reported explicitly',async()=>{
  const old=globalThis.fetch;globalThis.fetch=async()=>{const error=new Error('timed out');error.name='TimeoutError';throw error};
  try{await assert.rejects(async()=>{for await(const _ of streamGemini({GEMINI_API_KEY:'test'},'x',{})){}},/Gemini streaming provider timed out after 10000 ms/)}finally{globalThis.fetch=old}
 });
+
+test('streaming falls back to a stable model when primary model is overloaded',async()=>{
+ const old=globalThis.fetch;const called=[];
+ const sse='data: {"candidates":[{"content":{"parts":[{"text":"JARVIS_FALLBACK_OK"}]}}]}\\n\\n';
+ globalThis.fetch=async(url)=>{
+  const target=String(url);called.push(target);
+  if(target.includes('/models/gemini-3.8-flash:streamGenerateContent')){
+   return new Response(JSON.stringify({error:{status:'UNAVAILABLE',message:'temporarily overloaded'}}),{status:503,headers:{'content-type':'application/json'}});
+  }
+  return new Response(sse,{status:200});
+ };
+ try{
+  const output=[];for await(const chunk of streamGemini({GEMINI_API_KEY:'test'},'gemini-3.8-flash',{contents:[]}))output.push(chunk);
+  assert.deepEqual(output,['JARVIS_FALLBACK_OK']);
+  assert.equal(called.length,2);
+  assert.match(called[1],/models\\/gemini-3\\.6-flash:streamGenerateContent/);
+ }finally{globalThis.fetch=old}
+});
