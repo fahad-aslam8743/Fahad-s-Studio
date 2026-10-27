@@ -19,7 +19,7 @@ export default function WakeWord({onCommand,onGreeting,language='en-US',wakeName
     if(!event.results[i].isFinal)continue;
     const heard=String(event.results[i][0]?.transcript||'').trim();
     const normalizedName=(wakeName.trim()||'Jarvis').replace(/[^a-z0-9 ]/gi,'').trim().replace(/\s+/g,'\\s+');
-    const match=heard.match(new RegExp('\\b(?:hey|hi|okay|ok)\\s+'+normalizedName+'\\b[\\s,.:;!?-]*(.*)
+    const match=heard.match(new RegExp('\\b(?:hey|hi|okay|ok)\\s+'+normalizedName+'\\b[\\s,.:;!?-]*(.*)$','i'));
     if(!match)continue;
     const command=match[1].trim();
     if(command){stop();commandRef.current(command)}
@@ -35,7 +35,7 @@ export default function WakeWord({onCommand,onGreeting,language='en-US',wakeName
  useEffect(()=>()=>{armed.current=false;recognizer.current?.stop();recognizer.current=null},[]);
  return <div className="space-y-1">
   <button className="btn w-full" type="button" aria-pressed={active} onClick={start}>{active?'Disable wake word':'Enable “Hey {wakeName}”'}</button>
-  <p className="text-xs text-cyan-600">{active?'Listening for “Hey {wakeName}” while this window is running (microphone active)':'Off by default; you control microphone access'}</p>
+  <p className="text-xs text-cyan-600">{active?'Listening for “Hey '+wakeName+'” while this window is running (microphone active)':'Off by default; you control microphone access'}</p>
   {problem&&<p role="status" className="text-xs text-amber-300">{problem}</p>}
  </div>
 }
