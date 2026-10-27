@@ -69,7 +69,11 @@ try {
     if (typeof errorPayload?.message === 'string' && errorPayload.message.trim()) {
       detail = 'Worker stream error: ' + errorPayload.message.replace(/[\r\n|]/g, ' ').slice(0, 180);
     } else if (r.response.status !== 200) {
-      detail = 'Gemini chat returned ' + statusText(r.response) + '. Response content was not logged.';
+      const providerDetail = typeof r.value?.error === 'string'
+        ? r.value.error.replace(/[\\r\\n|]/g, ' ').slice(0, 160)
+        : '';
+      detail = 'Gemini chat returned ' + statusText(r.response) +
+        (providerDetail ? ': ' + providerDetail : '. Response content was not logged.');
     } else if (!donePayload) {
       detail = 'HTTP 200, but the stream did not include a done event. Response content was not logged.';
     } else {
@@ -77,7 +81,10 @@ try {
     }
   }
   record('Gemini streaming chat', ok ? 'PASS' : 'FAIL', detail);
-} catch { record('Gemini streaming chat', 'FAIL', 'Authenticated Gemini request could not be completed.'); }
+} catch (error) {
+  const reason = String(error?.message || error || 'unknown request error').replace(/[\\r\\n|]/g, ' ').slice(0, 160);
+  record('Gemini streaming chat', 'FAIL', 'Smoke request failed: ' + reason);
+}
 
 let deviceId = null;
 let deviceToken = null;
