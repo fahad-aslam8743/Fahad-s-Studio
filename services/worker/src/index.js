@@ -3,7 +3,7 @@ import {handleEmail,gmailCallback} from './email.js';
 import {handleVideo} from './video.js';
 const json=(data,status=200,origin='')=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...(origin?{'access-control-allow-origin':origin,'vary':'origin'}:{})}});
 const allowed=(origin)=>!origin||origin==='irfan://studio'||origin==='http://localhost:3000'||origin==='http://127.0.0.1:3000';
-function safeProviderMessage(value){return String(value||'').replace(/AIza[0-9A-Za-z_-]{20,}/g,'[redacted]').replace(/[\\r\\n\\t]+/g,' ').replace(/\\s{2,}/g,' ').trim().slice(0,180)}
+function safeProviderMessage(value){return String(value||'').replace(/AIza[0-9A-Za-z_-]{20,}/g,'[redacted]').replace(/[\r\n\t]+/g,' ').replace(/\s{2,}/g,' ').trim().slice(0,180)}
 async function providerHttpError(provider,response){
  let status='',message='';
  try{const payload=await response.clone().json(),e=payload?.error||{};status=typeof e.status==='string'?e.status.replace(/[^A-Z0-9_]/gi,'').slice(0,40):'';message=safeProviderMessage(e.message||'')}catch{}
