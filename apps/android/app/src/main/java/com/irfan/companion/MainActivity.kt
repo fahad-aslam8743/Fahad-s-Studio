@@ -174,7 +174,7 @@ class MainActivity: ComponentActivity() {
           "tools.run"->runOnUiThread{approveTool(args.optString("name"),args.optJSONObject("args")?:JSONObject()){reply(id,it)}}
           "tools.policy"->runOnUiThread{try{reply(id,tools.setRisk(args.getString("name"),args.getString("risk")))}catch(e:Exception){error(id,e)}}
           "permissions.open"->runOnUiThread{permissionsDialog();reply(id,JSONObject().put("opened",true))}
-          "speech"->runOnUiThread{speech(id)}
+          "speech"->runOnUiThread{speech(id,args.optString("language","auto"))}
           "speak"->runOnUiThread{
              if(!ttsReady){pendingSpeech=JSONObject(args.toString());reply(id,JSONObject().put("queued",true))}
              else try{reply(id,speakNow(args))}catch(e:Exception){error(id,e)}
@@ -229,15 +229,19 @@ class MainActivity: ComponentActivity() {
        AlertDialog.Builder(this).setItems(labels){_,i->startActivity(Intent(actions[i]))}.show()
      }.setNegativeButton("Close",null).show()
  }
- fun speech(id:String?){
+ fun speech(id:String?,language:String="auto"){
    if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
      requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),99)
      if(id!=null)reply(id,null,"Grant microphone permission, then retry")
      return
    }
    speechId=id
-   try{recognizer.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM))}
-   catch(e:Exception){if(id!=null)reply(id,null,"No speech recognition app available")}
+   val tag=when(language.lowercase(Locale.ROOT)){
+     "ur"->"ur-PK";"hi"->"hi-IN";"ar"->"ar-SA";"es"->"es-ES";"fr"->"fr-FR";"de"->"de-DE";"zh"->"zh-CN";"ja"->"ja-JP";"en"->"en-US";else->""
+   }
+   val intent=Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+   if(tag.isNotEmpty())intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,tag).putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,tag)
+   try{recognizer.launch(intent)}catch(e:Exception){if(id!=null)reply(id,null,"No speech recognition app available")}
  }
  private fun wakeToggle(){if(WakeWordService.active)stopService(Intent(this,WakeWordService::class.java))else wakeStart()}
  private fun wakeStart(){
