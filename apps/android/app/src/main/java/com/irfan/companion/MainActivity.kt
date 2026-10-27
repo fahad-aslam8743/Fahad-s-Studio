@@ -125,10 +125,6 @@ class MainActivity: ComponentActivity() {
        }
      }
      val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(0xff030815.toInt())}
-     val bar=LinearLayout(this)
-     fun button(label:String,click:()->Unit){bar.addView(Button(this).apply{text=label;setOnClickListener{click()}},LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))}
-     button("Pair"){pairDialog()};button("Permissions"){permissionsDialog()};button("Listen"){speech(null)};button("Wake"){wakeToggle()}
-     body.addView(bar)
      val loader=WebViewAssetLoader.Builder().setDomain("appassets.androidplatform.net")
          .addPathHandler("/",WebViewAssetLoader.AssetsPathHandler(this)).build()
      web=WebView(this)
