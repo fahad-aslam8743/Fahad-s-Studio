@@ -48,7 +48,7 @@ async function gemini(env,model,body,timeoutMs=10000){
  const resp=await geminiResponse(env,model,'generateContent',body,timeoutMs,'AI provider');
  return resp.json();
 }
-async function db(env,table,method='GET',query='',body){const r=await fetch(env.SUPABASE_URL+'/rest/v1/'+table+query,{method,headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json',Prefer:'return=representation'},...(body===undefined?{}:{body:JSON.stringify(body)})});if(!r.ok)throw Error('Database unavailable ('+r.status+')');return r.json();}
+async function db(env,table,method='GET',query='',body){const r=await fetch(env.SUPABASE_URL+'/rest/v1/'+table+query,{method,headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json',Prefer:'return=representation'},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(8000)});if(!r.ok)throw Error('Database unavailable ('+r.status+')');return r.json();}
 async function verifyDailyAiBudget(env,subject){
  const configured=Number(env.GEMINI_DAILY_REQUEST_LIMIT??500);
  if(!Number.isInteger(configured)||configured<1||configured>100000)throw Error('Invalid GEMINI_DAILY_REQUEST_LIMIT');
@@ -83,7 +83,7 @@ async function recentSummaries(env,limit=5){
 const langHint={en:'English',ur:'Urdu',hi:'Hindi',ar:'Arabic',es:'Spanish',fr:'French',de:'German',zh:'Chinese',ja:'Japanese',ko:'Korean',pt:'Portuguese',tr:'Turkish',ru:'Russian'};
 function textOf(r){return (r.candidates||[]).flatMap(c=>(c.content?.parts||[]).map(p=>p.text||'')).join('');}
 export async function* streamGemini(env,model,body){
- const timeoutMs=10000;
+ const timeoutMs=120000;
  const response=await geminiResponse(env,model,'streamGenerateContent?alt=sse',body,timeoutMs,'Gemini streaming provider');
  if(!response.body)throw Error('Gemini streaming provider returned no response body (HTTP '+response.status+')');
  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';

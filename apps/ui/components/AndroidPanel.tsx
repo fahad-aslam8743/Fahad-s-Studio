@@ -2,7 +2,7 @@
 import {useEffect,useState} from 'react';
 import {nativeCall} from '../lib/android';
 type T={name:string;risk:string;minimum:string};
-export default function AndroidPanel({request}:{request:(path:string,init?:RequestInit)=>Promise<any>}){
+export default function AndroidPanel({request,onCommand}:{request:(path:string,init?:RequestInit)=>Promise<any>;onCommand?:(text:string)=>void}){
  const [connected,setConnected]=useState(false),[code,setCode]=useState(''),[key,setKey]=useState(''),[tools,setTools]=useState<T[]>([]);
  const [action,setAction]=useState('open_app'),[args,setArgs]=useState('{"name":"Calculator"}'),[remote,setRemote]=useState('{"url":"https://example.com"}'),[remoteTool,setRemoteTool]=useState('open_website');
  const [waNumber,setWaNumber]=useState(''),[waBody,setWaBody]=useState('');
@@ -27,12 +27,15 @@ export default function AndroidPanel({request}:{request:(path:string,init?:Reque
    <button className="btn" disabled={busy} onClick={()=>void run(()=>nativeCall('tools.run',{name:action,args:JSON.parse(args)}))}>Review and run on phone</button>
   </div>
   <div className="border-t border-cyan-900 pt-2 space-y-2">
-   <h3>On-device wake word</h3>
-   <p className="text-xs">Requires Picovoice AccessKey; mic indicator stays visible. Starts only by your action.</p>
+   <h3 className="text-cyan-300">Voice &amp; wake word</h3>
+   <p className="text-xs leading-relaxed">One-shot voice input uses Android speech recognition and needs no Picovoice key. Always-on wake-word detection uses Picovoice Porcupine and requires an AccessKey; it only starts when you explicitly enable it.</p>
    <input className="input w-full" type="password" placeholder="Picovoice AccessKey (saved in Android Keystore)" value={key} onChange={e=>setKey(e.target.value)}/>
-   <button className="btn" onClick={()=>void run(async()=>{const result=await nativeCall('wake.start',{accessKey:key});setKey('');return result})}>Enable Jarvis wake word</button>
-   <button className="btn ml-2" onClick={()=>void run(()=>nativeCall('wake.stop'))}>Disable</button><button className="btn ml-2" onClick={()=>void run(()=>nativeCall('wake.selectModel'))}>Choose custom .ppn wake model</button>
-   <button className="btn ml-2" onClick={()=>void run(()=>nativeCall('speech'))}>Native speech recognition</button>
+   <div className="flex flex-wrap gap-2">
+    <button className="btn" onClick={()=>void run(async()=>{const result=await nativeCall('wake.start',{accessKey:key});setKey('');return result})}>Enable always-on wake</button>
+    <button className="btn" onClick={()=>void run(()=>nativeCall('wake.stop'))}>Disable wake word</button>
+    <button className="btn" onClick={()=>void run(()=>nativeCall('wake.selectModel'))}>Choose custom .ppn model</button>
+    <button className="btn" onClick={()=>void run(async()=>{const result=await nativeCall<{text?:string}>('speech');const text=(result.text||'').trim();if(text)onCommand?.(text);return {recognized:Boolean(text),text}})}>Speak once (no key)</button>
+   </div>
   </div>
   <div className="border-t border-cyan-900 pt-2 space-y-2">
    <h3>Ask paired PC to act</h3>

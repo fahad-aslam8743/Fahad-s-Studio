@@ -24,7 +24,9 @@ import java.util.concurrent.Executors
 
 class MainActivity: ComponentActivity() {
  companion object { var foreground:WeakReference<MainActivity>?=null }
- private val work=Executors.newSingleThreadExecutor()
+ private val work=Executors.newFixedThreadPool(3)
+ private val relayWork=Executors.newSingleThreadExecutor()
+ @Volatile private var relayPollInFlight=false
  private val handler=Handler(Looper.getMainLooper())
  private lateinit var web:WebView
  private lateinit var backend:Backend
@@ -65,11 +67,6 @@ class MainActivity: ComponentActivity() {
      super.onCreate(savedInstanceState)
      backend=Backend(this);tools=NativeTools(this)
      voice=TextToSpeech(this){if(it==TextToSpeech.SUCCESS)voice?.language=Locale.getDefault()}
-     val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(0xff030815.toInt())}
-     val bar=LinearLayout(this)
-     fun button(label:String,click:()->Unit){bar.addView(Button(this).apply{text=label;setOnClickListener{click()}},LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))}
-     button("Pair"){pairDialog()};button("Permissions"){permissionsDialog()};button("Listen"){speech(null)};button("Wake"){wakeToggle()}
-     body.addView(bar)
      val loader=WebViewAssetLoader.Builder().setDomain("appassets.androidplatform.net")
          .addPathHandler("/",WebViewAssetLoader.AssetsPathHandler(this)).build()
      web=WebView(this)
@@ -116,7 +113,14 @@ class MainActivity: ComponentActivity() {
           "session"->reply(id,JSONObject().put("paired",backend.paired).put("deviceId",backend.deviceId).put("platform","android"))
           "session.unpair"->runOnUiThread{AlertDialog.Builder(this@MainActivity).setTitle("Unpair this phone?").setMessage("This clears the Android device token from Keystore storage. You may need a new PC pairing code.").setPositiveButton("Unpair"){_,_->backend.unpair();reply(id,JSONObject().put("paired",false));emit("irfan-paired",JSONObject().put("paired",false))}.setNegativeButton("Cancel"){_,_->reply(id,JSONObject().put("cancelled",true))}.show()}
           "pair"->work.execute{try{reply(id,backend.pair(args.optString("code")))}catch(e:Exception){error(id,e)}}
-          "api"->work.execute{try{reply(id,backend.request(args.optString("route"),args.optString("verb","GET"),args.optJSONObject("body")))}catch(e:Exception){error(id,e)}}
+          "api"->work.execute{
+             val route=args.optString("route")
+             val onDelta: ((String)->Unit)? = if(route=="/chat") {
+               { chunk: String -> emit("irfan-chat-delta",JSONObject().put("text",chunk)) }
+             } else null
+             try{reply(id,backend.request(route,args.optString("verb","GET"),args.optJSONObject("body"),onDelta))}
+             catch(e:Exception){error(id,e)}
+          }
           "tools.list"->reply(id,JSONObject().put("tools",tools.list()))
           "tools.run"->runOnUiThread{approveTool(args.optString("name"),args.optJSONObject("args")?:JSONObject()){reply(id,it)}}
           "tools.policy"->runOnUiThread{try{reply(id,tools.setRisk(args.getString("name"),args.getString("risk")))}catch(e:Exception){error(id,e)}}
@@ -126,16 +130,20 @@ class MainActivity: ComponentActivity() {
           "wake.selectModel"->runOnUiThread{wakeModelRequest=id;modelPicker.launch(arrayOf("*/*"))}
           "wake.start"->runOnUiThread{
              val key=args.optString("accessKey")
-             if(key.isNotEmpty())SecureStore(this@MainActivity).put("porcupine_key",key)
-             wakeStart();reply(id,JSONObject().put("requested",true))
+             if(key.isNotBlank())SecureStore(this@MainActivity).put("porcupine_key",key)
+             val status=wakeStart()
+             when(status){
+               "started"->reply(id,JSONObject().put("started",true).put("mode","always_on"))
+               "microphone_permission_required"->reply(id,JSONObject().put("started",false).put("reason",status).put("message","Grant microphone permission, then enable wake word again."))
+               else->reply(id,JSONObject().put("started",false).put("reason","picovoice_key_required").put("message","Always-on wake word requires a Picovoice AccessKey. Use Speak once for voice input without a key."))
+             }
           }
           "wake.stop"->runOnUiThread{stopService(Intent(this@MainActivity,WakeWordService::class.java));reply(id,JSONObject().put("stopped",true))}
           else->reply(id,null,"Unknown native action")
          }
        }
      },"IrfanNative")
-     body.addView(web,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1f))
-     setContentView(body)
+     setContentView(web)
      web.loadUrl("https://appassets.androidplatform.net/index.html")
  }
  fun approveTool(name:String,args:JSONObject,forceConfirm:Boolean=false,done:(JSONObject)->Unit){
@@ -183,34 +191,47 @@ class MainActivity: ComponentActivity() {
    try{recognizer.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM))}
    catch(e:Exception){if(id!=null)reply(id,null,"No speech recognition app available")}
  }
- private fun wakeToggle(){if(WakeWordService.active)stopService(Intent(this,WakeWordService::class.java))else wakeStart()}
- private fun wakeStart(){
-   if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),100);return}
-   if(SecureStore(this).get("porcupine_key").isNullOrBlank()){Toast.makeText(this,"Enter Picovoice AccessKey in the Android tab",Toast.LENGTH_LONG).show();return}
+ private fun wakeToggle(){
+   if(WakeWordService.active){stopService(Intent(this,WakeWordService::class.java));return}
+   when(wakeStart()){
+     "microphone_permission_required"->Toast.makeText(this,"Grant microphone permission, then try again.",Toast.LENGTH_LONG).show()
+     "picovoice_key_required"->Toast.makeText(this,"Always-on wake needs a Picovoice key. Use Android voice input without a key.",Toast.LENGTH_LONG).show()
+   }
+ }
+ private fun wakeStart():String{
+   if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),100);return "microphone_permission_required"}
+   if(SecureStore(this).get("porcupine_key").isNullOrBlank())return "picovoice_key_required"
    startForegroundService(Intent(this,WakeWordService::class.java))
+   return "started"
  }
  private val polling=object:Runnable{
    override fun run(){
-     if(visible&&backend.paired)work.execute{
-       try{
-         val rows=backend.call("/relay/poll").optJSONArray("items")?:org.json.JSONArray()
-         for(i in 0 until rows.length()){
-           val task=rows.getJSONObject(i);val id=task.optString("id")
-           if(!seen.add(id))continue
-           runOnUiThread{approveTool(task.optString("tool"),task.optJSONObject("args")?:JSONObject(),true){result->
-             work.execute{
-               try{backend.call("/relay/complete","POST",JSONObject().put("id",id)
-                 .put("status",if(result.optString("status") in setOf("completed","opened","opened_settings","dialer_opened","sms_composer_opened","download_started"))"completed" else "rejected")
-                 .put("detail",result.toString()))}catch(_:Exception){}
+     if(visible&&backend.paired&&!relayPollInFlight){
+       relayPollInFlight=true
+       relayWork.execute{
+         try{
+           val rows=backend.call("/relay/poll").optJSONArray("items")?:org.json.JSONArray()
+           for(i in 0 until rows.length()){
+             val task=rows.getJSONObject(i);val id=task.optString("id")
+             if(!seen.add(id))continue
+             runOnUiThread{
+               approveTool(task.optString("tool"),task.optJSONObject("args")?:JSONObject(),true){result->
+                 work.execute{
+                   try{backend.call("/relay/complete","POST",JSONObject().put("id",id)
+                     .put("status",if(result.optString("status") in setOf("completed","opened","opened_settings","dialer_opened","sms_composer_opened","download_started"))"completed" else "rejected")
+                     .put("detail",result.toString())}catch(_:Exception){}
+                 }
+               }
              }
-           }}
-         }
-       }catch(_:Exception){}
+           }
+         }catch(_:Exception){}
+         finally{relayPollInFlight=false}
+       }
      }
      if(visible)handler.postDelayed(this,10000)
    }
  }
  override fun onResume(){super.onResume();foreground=WeakReference(this);visible=true;handler.removeCallbacks(polling);handler.postDelayed(polling,10000)}
  override fun onPause(){visible=false;handler.removeCallbacks(polling);foreground=null;super.onPause()}
- override fun onDestroy(){visible=false;handler.removeCallbacks(polling);voice?.shutdown();web.destroy();work.shutdownNow();super.onDestroy()}
+ override fun onDestroy(){visible=false;handler.removeCallbacks(polling);voice?.shutdown();web.destroy();work.shutdownNow();relayWork.shutdownNow();super.onDestroy()}
 }

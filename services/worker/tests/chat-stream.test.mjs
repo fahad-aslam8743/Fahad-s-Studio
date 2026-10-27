@@ -24,7 +24,7 @@ test('streaming provider errors expose safe Google diagnostics without leaking k
 });
 test('streaming provider timeout is reported explicitly',async()=>{
  const old=globalThis.fetch;globalThis.fetch=async()=>{const error=new Error('timed out');error.name='TimeoutError';throw error};
- try{await assert.rejects(async()=>{for await(const _ of streamGemini({GEMINI_API_KEY:'test'},'x',{})){}},/Gemini streaming provider timed out after 10000 ms/)}finally{globalThis.fetch=old}
+ try{await assert.rejects(async()=>{for await(const _ of streamGemini({GEMINI_API_KEY:'test'},'x',{})){}},/Gemini streaming provider timed out after 120000 ms/)}finally{globalThis.fetch=old}
 });
 
 test('streaming falls back to a stable model when primary model is overloaded',async()=>{
