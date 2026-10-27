@@ -1,3 +1,4 @@
+# CI trigger refresh after Android signing secrets were configured.
 name: Client Handoff - Windows and Android
 on:
   push:
