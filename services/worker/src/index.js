@@ -129,10 +129,12 @@ if(url.pathname==='/chat'&&request.method==='POST'){
 if(url.pathname==='/tts'&&request.method==='POST'){
  const b=await request.json();if(typeof b.text!=='string'||!b.text.trim()||b.text.length>2800)return json({error:'Invalid TTS text'},400,origin);
  const voice=b.gender==='male'?'Puck':'Kore';
- const audio=await gemini(env,env.GEMINI_TTS_MODEL||'gemini-3.8-flash-tts',{contents:[{role:'user',parts:[{text:b.text}]}],generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:voice}}}}});
- const pcm=audio.candidates?.[0]?.content?.parts?.find(p=>p.inlineData?.data||p.inline_data?.data);
- if(!pcm)return json({error:'Speech model returned no audio'},502,origin);
- return json({pcm:pcm.inlineData?.data||pcm.inline_data?.data,sampleRate:24000,channels:1},200,origin);
+ const speech=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY,'Api-Revision':'2026-05-20'},body:JSON.stringify({model:env.GEMINI_TTS_MODEL||'gemini-3.8-flash-tts',input:b.text,response_format:{type:'audio'},generation_config:{speech_config:[{voice}]}})});
+ if(!speech.ok)return json({error:'Speech provider returned HTTP '+speech.status},502,origin);
+ const audio=await speech.json();
+ const pcm=audio.output_audio?.data;
+ if(typeof pcm!=='string'||!pcm)return json({error:'Speech model returned no audio'},502,origin);
+ return json({pcm,sampleRate:24000,channels:1},200,origin);
 }
 if(url.pathname==='/stt'&&request.method==='POST'){const b=await request.json();const r=await gemini(env,env.GEMINI_STT_MODEL||'gemini-3.8-flash',{contents:[{parts:[{inline_data:{mime_type:b.mime,data:b.audio}},{text:'Transcribe verbatim, preserve the spoken language. Output only transcript.'}]}]});return json({text:textOf(r)},200,origin);}
 return json({error:'Not found'},404,origin);
