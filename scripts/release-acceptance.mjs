@@ -53,6 +53,33 @@ try {
   record('Owner authentication', ok ? 'PASS' : 'FAIL', ok ? 'Owner token returned expected personas.' : 'Owner token check failed (' + statusText(r.response) + ').');
 } catch { record('Owner authentication', 'FAIL', 'Could not authenticate the owner token.'); }
 
+// Probe the non-streaming Gemini endpoint separately. This distinguishes a
+// general provider/key/network problem from a streaming-endpoint-specific issue.
+try {
+  const started = Date.now();
+  const r = await request('/tools/plan', {
+    method: 'POST',
+    body: {
+      message: 'This is a release connectivity probe. No tools are available, so return action none.',
+      tools: []
+    }
+  });
+  const elapsedMs = Date.now() - started;
+  const ok = r.response.status === 200 && typeof r.value?.action === 'string';
+  let detail = 'Gemini generateContent responded in ' + elapsedMs + ' ms.';
+  if (!ok) {
+    const providerDetail = typeof r.value?.error === 'string'
+      ? r.value.error.replace(/[\\r\\n|]/g, ' ').slice(0, 160)
+      : '';
+    detail = 'Non-stream Gemini probe returned ' + statusText(r.response) +
+      ' after ' + elapsedMs + ' ms' + (providerDetail ? ': ' + providerDetail : '. No safe provider detail was returned.');
+  }
+  record('Gemini non-stream API probe', ok ? 'PASS' : 'FAIL', detail);
+} catch (error) {
+  const reason = String(error?.message || error || 'unknown request error').replace(/[\\r\\n|]/g, ' ').slice(0, 160);
+  record('Gemini non-stream API probe', 'FAIL', 'Probe request failed: ' + reason);
+}
+
 try {
   const r = await request('/chat', { method: 'POST', body: { message: 'For this release check, reply with exactly JARVIS_RELEASE_OK and nothing else.', persona: 'calm', history: [], diagnostic: true } });
   const blocks = r.raw.split(/\r?\n\r?\n/);
