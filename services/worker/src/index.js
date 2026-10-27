@@ -3,22 +3,44 @@ import {handleEmail,gmailCallback} from './email.js';
 import {handleVideo} from './video.js';
 const json=(data,status=200,origin='')=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...(origin?{'access-control-allow-origin':origin,'vary':'origin'}:{})}});
 const allowed=(origin)=>!origin||origin==='irfan://studio'||origin==='http://localhost:3000'||origin==='http://127.0.0.1:3000';
-async function gemini(env,model,body){const resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify(body)});if(!resp.ok)throw new Error('AI provider returned '+resp.status);return resp.json();}
+function safeProviderMessage(value){return String(value||'').replace(/AIza[0-9A-Za-z_-]{20,}/g,'[redacted]').replace(/[\\r\\n\\t]+/g,' ').replace(/\\s{2,}/g,' ').trim().slice(0,180)}
+async function providerHttpError(provider,response){
+ let status='',message='';
+ try{const payload=await response.clone().json(),e=payload?.error||{};status=typeof e.status==='string'?e.status.replace(/[^A-Z0-9_]/gi,'').slice(0,40):'';message=safeProviderMessage(e.message||'')}catch{}
+ const detail=[status,message].filter(Boolean).join(': ');
+ return provider+' returned HTTP '+response.status+(detail?' ('+detail+')':'');
+}
+function providerRequestError(provider,error,timeoutMs){
+ if(error?.name==='TimeoutError'||error?.name==='AbortError')return new Error(provider+' timed out after '+timeoutMs+' ms');
+ return new Error(provider+' request failed: '+(safeProviderMessage(error?.message||error)||'network error'));
+}
+async function gemini(env,model,body,timeoutMs=10000){
+ let resp;
+ try{resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs)})}
+ catch(error){throw providerRequestError('AI provider',error,timeoutMs)}
+ if(!resp.ok)throw new Error(await providerHttpError('AI provider',resp));
+ return resp.json();
+}
 async function db(env,table,method='GET',query='',body){const r=await fetch(env.SUPABASE_URL+'/rest/v1/'+table+query,{method,headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json',Prefer:'return=representation'},...(body===undefined?{}:{body:JSON.stringify(body)})});if(!r.ok)throw Error('Database unavailable ('+r.status+')');return r.json();}
 async function verifyDailyAiBudget(env,subject){
  const configured=Number(env.GEMINI_DAILY_REQUEST_LIMIT??500);
  if(!Number.isInteger(configured)||configured<1||configured>100000)throw Error('Invalid GEMINI_DAILY_REQUEST_LIMIT');
  const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(subject));
  const hash=Array.from(new Uint8Array(h)).map(x=>x.toString(16).padStart(2,'0')).join('');
- const r=await fetch(env.SUPABASE_URL+'/rest/v1/rpc/jarvis_daily_ai_check',{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'content-type':'application/json'},body:JSON.stringify({p_subject:hash,p_limit:configured})});
+ let r;
+ try{r=await fetch(env.SUPABASE_URL+'/rest/v1/rpc/jarvis_daily_ai_check',{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'content-type':'application/json'},body:JSON.stringify({p_subject:hash,p_limit:configured}),signal:AbortSignal.timeout(2500)})}
+ catch(error){throw providerRequestError('Daily AI request limit check',error,2500)}
  if(!r.ok)throw Error('Daily AI request limit check unavailable ('+r.status+')');
  return (await r.json())===true;
 }
 const personas={calm:'Speak calmly, clearly and precisely.',energetic:'Be energetic, friendly and focused.',romantic:'Be warm and poetic but respectful, never manipulative.'};
 function textOf(r){return (r.candidates||[]).flatMap(c=>(c.content?.parts||[]).map(p=>p.text||'')).join('');}
 export async function* streamGemini(env,model,body){
- const response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':streamGenerateContent?alt=sse',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify(body)});
- if(!response.ok||!response.body)throw Error('Gemini streaming provider returned '+response.status);
+ const timeoutMs=10000;let response;
+ try{response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':streamGenerateContent?alt=sse',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs)})}
+ catch(error){throw providerRequestError('Gemini streaming provider',error,timeoutMs)}
+ if(!response.ok)throw new Error(await providerHttpError('Gemini streaming provider',response));
+ if(!response.body)throw Error('Gemini streaming provider returned no response body (HTTP '+response.status+')');
  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
  while(true){
   const {value,done}=await reader.read();
@@ -46,8 +68,14 @@ async function storeConversation(env,requestText,answer){
   for(const fact of facts.slice(0,2))if(typeof fact==='string'&&fact.length>4&&fact.length<300){const v=await embed(env,fact);await db(env,'memories','POST','',{fact,importance:0.5,embedding:'['+v.join(',')+']'})}
  }catch{/* A memory extraction failure must never invalidate chat. */}
 }
-async function embed(env,text){const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(env.GEMINI_EMBED_MODEL||'gemini-embedding-001')+':embedContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify({content:{parts:[{text}]},outputDimensionality:768})});if(!r.ok)throw Error('Embedding provider returned '+r.status);const d=await r.json();return d.embedding?.values||[];}
-async function memoryLookup(env,text){if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return [];try{const v=await embed(env,text);const r=await fetch(env.SUPABASE_URL+'/rest/v1/rpc/match_irfan_memories',{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json'},body:JSON.stringify({query_embedding:'['+v.join(',')+']',match_count:5})});return r.ok?(await r.json()).map(x=>x.fact):[];}catch{return [];}}
+async function embed(env,text,timeoutMs=10000){
+ let r;
+ try{r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(env.GEMINI_EMBED_MODEL||'gemini-embedding-001')+':embedContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify({content:{parts:[{text}]},outputDimensionality:768}),signal:AbortSignal.timeout(timeoutMs)})}
+ catch(error){throw providerRequestError('Embedding provider',error,timeoutMs)}
+ if(!r.ok)throw new Error(await providerHttpError('Embedding provider',r));
+ const d=await r.json();return d.embedding?.values||[];
+}
+async function memoryLookup(env,text){if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return [];try{const v=await embed(env,text,1250);const r=await fetch(env.SUPABASE_URL+'/rest/v1/rpc/match_irfan_memories',{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json'},body:JSON.stringify({query_embedding:'['+v.join(',')+']',match_count:5}),signal:AbortSignal.timeout(1250)});return r.ok?(await r.json()).map(x=>x.fact):[];}catch{return [];}}
 export default {async scheduled(_event,env){
  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return;
  const now=new Date().toISOString();
