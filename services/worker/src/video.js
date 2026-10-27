@@ -34,6 +34,16 @@ export class FalEngine{
 export async function handleVideo(request,env,path,gemini,textOf){
  if(!path.startsWith('/video/'))return null;
  const method=request.method,url=new URL(request.url);
+ if(path==='/video/diagnostics'&&method==='GET'){
+  const dailyLimit=Number(env.FAL_DAILY_LIMIT_USD??5);
+  return out({
+   configured:typeof env.FAL_KEY==='string'&&env.FAL_KEY.length>0,
+   dailyBudgetValid:Number.isFinite(dailyLimit)&&dailyLimit>=0&&dailyLimit<=10000,
+   dailyLimitUsd:Number.isFinite(dailyLimit)?dailyLimit:null,
+   providerRequestMade:false,
+   paidGenerationSubmitted:false
+  });
+ }
  if(path==='/video/models'&&method==='GET')return out(VIDEO_MODELS);
  if(path==='/video/director'&&method==='POST'){
   const b=await request.json();if(typeof b.idea!=='string'||b.idea.length>1200||!b.idea.trim())return out({error:'Invalid idea'},400);

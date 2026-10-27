@@ -86,6 +86,16 @@ export async function handleEmail(request,env,pathname,gemini,textOf){
   return json({url:'https://accounts.google.com/o/oauth2/v2/auth?'+q.toString()})
  }
  const provider=new GmailProvider(env);
+ if(pathname==='/email/diagnostics'&&method==='GET'){
+  const rows=await table(env,'jarvis_email_accounts','GET','?provider=eq.gmail&select=email_address&limit=1');
+  if(!rows.length)return json({configured:true,connected:false,gmailApi:'not_tested'});
+  try{
+   const inbox=await provider.inbox('in:inbox',1);
+   return json({configured:true,connected:true,gmailApi:'ok',checkedCount:Math.min(1,(inbox.messages||[]).length)});
+  }catch(error){
+   return json({configured:true,connected:true,gmailApi:'failed',reason:'Gmail API or token refresh failed ('+String(error?.message||error).slice(0,80)+')'},502);
+  }
+ }
  if(pathname==='/email/status'&&method==='GET'){const rows=await table(env,'jarvis_email_accounts','GET','?provider=eq.gmail&select=email_address,scopes');return json({connected:!!rows.length,email:rows[0]?.email_address||null})}
  if(pathname==='/email/inbox'&&method==='GET'){const r=await provider.inbox();return json({messages:await Promise.all((r.messages||[]).map(x=>provider.message(x.id)))})}
  if(pathname==='/email/search'&&method==='GET')return json(await provider.search((url.searchParams.get('q')||'').slice(0,500)));
