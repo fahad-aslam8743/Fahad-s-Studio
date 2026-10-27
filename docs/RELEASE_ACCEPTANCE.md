@@ -33,7 +33,7 @@ If no key exists, create one in a secure local environment and keep it outside t
 3. Open Actions → Client Handoff — Windows and Android → Run workflow, set run_live_acceptance to true, and start the workflow.
 4. Download the jarvis-live-acceptance-report artifact or read the workflow summary. Resolve every FAIL and BLOCKED item before sign-off.
 
-The live check uses the owner token, verifies access control, sends one small diagnostic prompt to Gemini, creates and immediately revokes a temporary pairing record, and probes Gmail without returning mailbox contents. It never sends an email or launches paid video. The check requires live network access and consumes a small amount of Gemini usage.
+The live check uses the owner token, verifies access control, sends one small diagnostic prompt to Gemini without saving a test conversation, creates and immediately revokes a temporary pairing record, verifies code replay is rejected and the revoked token fails, and probes Gmail without returning mailbox contents. It never sends an email or launches paid video. The check requires live network access and consumes a small amount of Gemini usage.
 
 ## Configure external services
 

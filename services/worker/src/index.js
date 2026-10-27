@@ -120,7 +120,7 @@ if(url.pathname==='/chat'&&request.method==='POST'){
     send('meta',{persona});
     for await(const delta of streamGemini(env,env.GEMINI_MODEL||'gemini-2.5-flash',body)){answer+=delta;send('delta',{text:delta})}
     send('done',{text:answer});
-    if(ctx?.waitUntil&&answer)ctx.waitUntil(storeConversation(env,b.message,answer).catch(()=>{}));
+    if(ctx?.waitUntil&&answer&&!(owner&&b.diagnostic===true))ctx.waitUntil(storeConversation(env,b.message,answer).catch(()=>{}));
    }catch(e){send('error',{message:'Chat response unavailable: '+String(e?.message||e).slice(0,250)})}
    finally{controller.close()}
  }});

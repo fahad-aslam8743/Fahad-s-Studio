@@ -54,7 +54,7 @@ try {
 } catch { record('Owner authentication', 'FAIL', 'Could not authenticate the owner token.'); }
 
 try {
-  const r = await request('/chat', { method: 'POST', body: { message: 'For this release check, reply with exactly JARVIS_RELEASE_OK and nothing else.', persona: 'calm', history: [] } });
+  const r = await request('/chat', { method: 'POST', body: { message: 'For this release check, reply with exactly JARVIS_RELEASE_OK and nothing else.', persona: 'calm', history: [], diagnostic: true } });
   const blocks = r.raw.split(/\r?\n\r?\n/);
   const doneBlock = blocks.find(x => /^event: done(?:\r?\n|$)/.test(x));
   const errBlock = blocks.find(x => /^event: error(?:\r?\n|$)/.test(x));
