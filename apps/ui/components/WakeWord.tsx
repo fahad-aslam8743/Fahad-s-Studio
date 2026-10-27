@@ -34,7 +34,7 @@ export default function WakeWord({onCommand,onGreeting,language='en-US',wakeName
  }
  useEffect(()=>()=>{armed.current=false;recognizer.current?.stop();recognizer.current=null},[]);
  return <div className="space-y-1">
-  <button className="btn w-full" type="button" aria-pressed={active} onClick={start}>{active?'Disable wake word':'Enable “Hey {wakeName}”'}</button>
+  <button className="btn w-full" type="button" aria-pressed={active} onClick={start}>{active?'Disable wake word':'Enable “Hey '+wakeName+'”'}</button>
   <p className="text-xs text-cyan-600">{active?'Listening for “Hey '+wakeName+'” while this window is running (microphone active)':'Off by default; you control microphone access'}</p>
   {problem&&<p role="status" className="text-xs text-amber-300">{problem}</p>}
  </div>
