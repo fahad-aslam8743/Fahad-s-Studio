@@ -1,5 +1,5 @@
 # IRFAN'S STUDIO — CLIENT HANDOFF (Windows + Android)
-_Last updated October 19, 2026. Candidate branch: `client-handoff-windows-android`._
+_Last updated October 27, 2026. Candidate branch: `client-handoff-windows-android`._
 
 ## What the client receives
 
@@ -67,6 +67,10 @@ Jarvis is designed for a single owner and a shared Cloudflare Worker + Supabase.
 - **Can't update APK:** the Android debug signing key changes across CI runs. Uninstall/reinstall for testing or use a stable client-signed production APK once a keystore is provided.
 - **PC video says FFmpeg unavailable:** install using Video Studio or place a trusted FFmpeg executable on PATH, then restart Jarvis.
 - **Windows installer warning:** expected for an unsigned test build. Avoid distributing the candidate broadly; arrange code signing.
+
+## Release acceptance gate
+
+The current signing, owner-authenticated live smoke, external credential, and physical-device requirements are documented in docs/RELEASE_ACCEPTANCE.md. The optional live smoke never sends email and never submits paid video. Keep PR #7 in Draft until production checks are complete.
 
 ## Developer reference
 
