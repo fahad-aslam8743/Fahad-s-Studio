@@ -70,7 +70,7 @@ try {
       detail = 'Worker stream error: ' + errorPayload.message.replace(/[\r\n|]/g, ' ').slice(0, 180);
     } else if (r.response.status !== 200) {
       const providerDetail = typeof r.value?.error === 'string'
-        ? r.value.error.replace(/[\\r\\n|]/g, ' ').slice(0, 160)
+        ? r.value.error.replace(/[\r\n|]/g, ' ').slice(0, 160)
         : '';
       detail = 'Gemini chat returned ' + statusText(r.response) +
         (providerDetail ? ': ' + providerDetail : '. Response content was not logged.');
@@ -82,7 +82,7 @@ try {
   }
   record('Gemini streaming chat', ok ? 'PASS' : 'FAIL', detail);
 } catch (error) {
-  const reason = String(error?.message || error || 'unknown request error').replace(/[\\r\\n|]/g, ' ').slice(0, 160);
+  const reason = String(error?.message || error || 'unknown request error').replace(/[\r\n|]/g, ' ').slice(0, 160);
   record('Gemini streaming chat', 'FAIL', 'Smoke request failed: ' + reason);
 }
 
