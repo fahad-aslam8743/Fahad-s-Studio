@@ -44,3 +44,20 @@ test('streaming falls back to a stable model when primary model is overloaded',a
   assert.match(called[1],/models\/gemini-3\.6-flash:streamGenerateContent/);
  }finally{globalThis.fetch=old}
 });
+
+
+test('streaming falls back to stable Gemini 2.5 when both newer models are overloaded',async()=>{
+ const old=globalThis.fetch;const called=[];
+ const sse='data: {"candidates":[{"content":{"parts":[{"text":"JARVIS_STABLE_FALLBACK_OK"}]}}]}\n\n';
+ globalThis.fetch=async(url)=>{
+  const target=String(url);called.push(target);
+  if(target.includes('/models/gemini-2.5-flash:streamGenerateContent'))return new Response(sse,{status:200});
+  return new Response(JSON.stringify({error:{status:'UNAVAILABLE',message:'temporarily overloaded'}}),{status:503,headers:{'content-type':'application/json'}});
+ };
+ try{
+  const output=[];for await(const chunk of streamGemini({GEMINI_API_KEY:'test'},'gemini-3.8-flash',{contents:[]}))output.push(chunk);
+  assert.deepEqual(output,['JARVIS_STABLE_FALLBACK_OK']);
+  assert.equal(called.length,3);
+  assert.match(called[2],/models\/gemini-2\.5-flash:streamGenerateContent/);
+ }finally{globalThis.fetch=old}
+});
