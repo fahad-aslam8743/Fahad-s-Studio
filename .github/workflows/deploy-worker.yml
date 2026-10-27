@@ -1,7 +1,7 @@
 name: Deploy Irfan's Studio API
 on:
   push:
-    branches: [phase-1-foundation, main]
+    branches: [phase-1-foundation, main, fix/jarvis-mobile-functional-pass]
     paths:
       - "services/worker/**"
       - ".github/workflows/deploy-worker.yml"
@@ -19,6 +19,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: pnpm/action-setup@v4
+      - name: Install workspace dependencies
+        run: pnpm install --no-frozen-lockfile
+        working-directory: .
       - name: Deploy Cloudflare Worker
         run: npx --yes wrangler@4 deploy
         env:

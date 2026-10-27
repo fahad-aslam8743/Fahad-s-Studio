@@ -10,6 +10,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.*
@@ -32,6 +33,8 @@ class MainActivity: ComponentActivity() {
  private var speechId:String?=null
  private var wakeModelRequest:String?=null
  private var voice:TextToSpeech?=null
+ private var ttsReady=false
+ private var pendingSpeech:JSONObject?=null
  private var visible=false
  private val seen=mutableSetOf<String>()
  private val modelPicker=registerForActivityResult(ActivityResultContracts.OpenDocument()){uri->
@@ -57,24 +60,79 @@ class MainActivity: ComponentActivity() {
      if(error==null)packet.put("value",value?:JSONObject())else packet.put("error",error.take(300))
      runOnUiThread {if(::web.isInitialized)web.evaluateJavascript("window.__irfanNativeReply&&window.__irfanNativeReply("+packet.toString()+")",null)}
  }
- private fun emit(name:String,detail:JSONObject){
+ fun emit(name:String,detail:JSONObject){
      runOnUiThread {if(::web.isInitialized)web.evaluateJavascript("window.dispatchEvent(new CustomEvent("+JSONObject.quote(name)+",{detail:"+detail.toString()+"}))",null)}
  }
  private fun error(id:String,e:Throwable){android.util.Log.w("IrfanCompanion",e.javaClass.simpleName);reply(id,null,e.message?:"Action unavailable")}
+ private fun speakNow(args:JSONObject):JSONObject {
+   val text=args.optString("text").trim().take(3000)
+   require(text.isNotEmpty()){"Nothing to speak"}
+   val requested=args.optString("language","auto").lowercase(Locale.ROOT)
+   val language=if(requested=="auto"){
+     when {
+       Regex("[\\u0600-\\u06FF]").containsMatchIn(text)->"ur"
+       Regex("[\\u0900-\\u097F]").containsMatchIn(text)->"hi"
+       else->Locale.getDefault().language.ifBlank{"en"}
+     }
+   } else requested
+   val locale=when(language){
+     "ur"->Locale.forLanguageTag("ur-PK")
+     "hi"->Locale.forLanguageTag("hi-IN")
+     "ar"->Locale.forLanguageTag("ar")
+     "es"->Locale.forLanguageTag("es")
+     "fr"->Locale.forLanguageTag("fr")
+     "de"->Locale.forLanguageTag("de")
+     "zh"->Locale.forLanguageTag("zh-CN")
+     "ja"->Locale.forLanguageTag("ja")
+     else->Locale.forLanguageTag("en-US")
+   }
+   val tts=voice?:throw IllegalStateException("Android speech engine is unavailable")
+   val languageStatus=tts.setLanguage(locale)
+   if(languageStatus==TextToSpeech.LANG_MISSING_DATA||languageStatus==TextToSpeech.LANG_NOT_SUPPORTED){
+     tts.language=Locale.getDefault()
+   } else {
+     val gender=args.optString("gender","female").lowercase(Locale.ROOT)
+     val matching=tts.voices?.firstOrNull{v->
+       v.locale.language==locale.language &&
+       (v.name.contains(gender,true)||v.features.any{it.contains("gender="+gender,true)})
+     }
+     if(matching!=null)tts.voice=matching
+   }
+   when(args.optString("persona","calm")){
+     "energetic"->tts.setSpeechRate(1.08f)
+     "romantic"->tts.setSpeechRate(0.96f)
+     else->tts.setSpeechRate(1.0f)
+   }
+   val result=tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"jarvis-"+System.currentTimeMillis())
+   if(result==TextToSpeech.ERROR)throw IllegalStateException("Android could not start speech output")
+   return JSONObject().put("spoken",true).put("language",locale.toLanguageTag())
+ }
+
  override fun onCreate(savedInstanceState:Bundle?){
      super.onCreate(savedInstanceState)
+     window.statusBarColor=0xff030815.toInt()
+     window.navigationBarColor=0xff030815.toInt()
+     window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
      backend=Backend(this);tools=NativeTools(this)
-     voice=TextToSpeech(this){if(it==TextToSpeech.SUCCESS)voice?.language=Locale.getDefault()}
+     voice=TextToSpeech(this){status->
+       if(status==TextToSpeech.SUCCESS){
+         ttsReady=true
+         voice?.language=Locale.getDefault()
+         voice?.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
+           override fun onStart(utteranceId:String?){emit("irfan-tts-start",JSONObject())}
+           override fun onDone(utteranceId:String?){emit("irfan-tts-done",JSONObject())}
+           override fun onError(utteranceId:String?){emit("irfan-tts-error",JSONObject().put("message","Android speech output failed"))}
+         })
+         pendingSpeech?.let{args->try{speakNow(args)}catch(e:Exception){emit("irfan-tts-error",JSONObject().put("message",e.message?:"Speech unavailable"))}}
+         pendingSpeech=null
+       }
+     }
      val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(0xff030815.toInt())}
-     val bar=LinearLayout(this)
-     fun button(label:String,click:()->Unit){bar.addView(Button(this).apply{text=label;setOnClickListener{click()}},LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))}
-     button("Pair"){pairDialog()};button("Permissions"){permissionsDialog()};button("Listen"){speech(null)};button("Wake"){wakeToggle()}
-     body.addView(bar)
      val loader=WebViewAssetLoader.Builder().setDomain("appassets.androidplatform.net")
          .addPathHandler("/",WebViewAssetLoader.AssetsPathHandler(this)).build()
      web=WebView(this)
      web.settings.javaScriptEnabled=true
-     web.settings.domStorageEnabled=false
+     web.settings.domStorageEnabled=true
      web.settings.allowFileAccess=false
      web.settings.allowContentAccess=false
      web.settings.allowFileAccessFromFileURLs=false
@@ -121,15 +179,21 @@ class MainActivity: ComponentActivity() {
           "tools.run"->runOnUiThread{approveTool(args.optString("name"),args.optJSONObject("args")?:JSONObject()){reply(id,it)}}
           "tools.policy"->runOnUiThread{try{reply(id,tools.setRisk(args.getString("name"),args.getString("risk")))}catch(e:Exception){error(id,e)}}
           "permissions.open"->runOnUiThread{permissionsDialog();reply(id,JSONObject().put("opened",true))}
-          "speech"->runOnUiThread{speech(id)}
-          "speak"->runOnUiThread{voice?.speak(args.optString("text").take(3000),TextToSpeech.QUEUE_FLUSH,null,"irfan");reply(id,JSONObject().put("spoken",true))}
+          "speech"->runOnUiThread{speech(id,args.optString("language","auto"))}
+          "speak"->runOnUiThread{
+             if(!ttsReady){pendingSpeech=JSONObject(args.toString());reply(id,JSONObject().put("queued",true))}
+             else try{reply(id,speakNow(args))}catch(e:Exception){error(id,e)}
+          }
+          "stopSpeaking"->runOnUiThread{voice?.stop();reply(id,JSONObject().put("stopped",true))}
           "wake.selectModel"->runOnUiThread{wakeModelRequest=id;modelPicker.launch(arrayOf("*/*"))}
           "wake.start"->runOnUiThread{
              val key=args.optString("accessKey")
              if(key.isNotEmpty())SecureStore(this@MainActivity).put("porcupine_key",key)
-             wakeStart();reply(id,JSONObject().put("requested",true))
+             val requested=wakeStart()
+             reply(id,JSONObject().put("requested",requested).put("active",WakeWordService.active))
           }
-          "wake.stop"->runOnUiThread{stopService(Intent(this@MainActivity,WakeWordService::class.java));reply(id,JSONObject().put("stopped",true))}
+          "wake.status"->reply(id,JSONObject().put("active",WakeWordService.active))
+          "wake.stop"->runOnUiThread{stopService(Intent(this@MainActivity,WakeWordService::class.java));reply(id,JSONObject().put("stopped",true).put("active",false))}
           else->reply(id,null,"Unknown native action")
          }
        }
@@ -173,21 +237,26 @@ class MainActivity: ComponentActivity() {
        AlertDialog.Builder(this).setItems(labels){_,i->startActivity(Intent(actions[i]))}.show()
      }.setNegativeButton("Close",null).show()
  }
- fun speech(id:String?){
+ fun speech(id:String?,language:String="auto"){
    if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
      requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),99)
      if(id!=null)reply(id,null,"Grant microphone permission, then retry")
      return
    }
    speechId=id
-   try{recognizer.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM))}
-   catch(e:Exception){if(id!=null)reply(id,null,"No speech recognition app available")}
+   val tag=when(language.lowercase(Locale.ROOT)){
+     "ur"->"ur-PK";"hi"->"hi-IN";"ar"->"ar-SA";"es"->"es-ES";"fr"->"fr-FR";"de"->"de-DE";"zh"->"zh-CN";"ja"->"ja-JP";"en"->"en-US";else->""
+   }
+   val intent=Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+   if(tag.isNotEmpty())intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,tag).putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,tag)
+   try{recognizer.launch(intent)}catch(e:Exception){if(id!=null)reply(id,null,"No speech recognition app available")}
  }
  private fun wakeToggle(){if(WakeWordService.active)stopService(Intent(this,WakeWordService::class.java))else wakeStart()}
- private fun wakeStart(){
-   if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),100);return}
-   if(SecureStore(this).get("porcupine_key").isNullOrBlank()){Toast.makeText(this,"Enter Picovoice AccessKey in the Android tab",Toast.LENGTH_LONG).show();return}
-   startForegroundService(Intent(this,WakeWordService::class.java))
+ private fun wakeStart():Boolean {
+   if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),100);return false}
+   if(SecureStore(this).get("porcupine_key").isNullOrBlank()){Toast.makeText(this,"Enter Picovoice AccessKey in the Android tab",Toast.LENGTH_LONG).show();return false}
+   return try{startForegroundService(Intent(this,WakeWordService::class.java));true}
+   catch(e:Exception){Toast.makeText(this,e.message?:"Could not start wake listener",Toast.LENGTH_LONG).show();false}
  }
  private val polling=object:Runnable{
    override fun run(){

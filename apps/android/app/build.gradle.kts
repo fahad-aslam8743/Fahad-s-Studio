@@ -7,7 +7,7 @@ android {
     androidResources {
         ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~"
     }
-    defaultConfig { applicationId = "com.irfan.companion"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "0.5.0" }
+    defaultConfig { applicationId = "com.irfan.companion"; minSdk = 26; targetSdk = 35; versionCode = 2; versionName = "0.6.0" }
     val signedStore=System.getenv("ANDROID_KEYSTORE_FILE")
     if(!signedStore.isNullOrBlank()){
         signingConfigs {

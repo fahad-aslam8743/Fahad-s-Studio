@@ -2,7 +2,7 @@
 name: Client Handoff - Windows and Android
 on:
   push:
-    branches: [client-handoff-windows-android, fix/android-play-protect-release]
+    branches: [client-handoff-windows-android, fix/android-play-protect-release, fix/jarvis-mobile-functional-pass]
   workflow_dispatch:
     inputs:
       run_live_acceptance:
@@ -247,7 +247,7 @@ jobs:
           if-no-files-found: ignore
 
   live-acceptance:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_acceptance }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run_live_acceptance) || (github.event_name == 'push' && github.ref == 'refs/heads/fix/jarvis-mobile-functional-pass' && contains(github.event.head_commit.message, '[live-acceptance]')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
