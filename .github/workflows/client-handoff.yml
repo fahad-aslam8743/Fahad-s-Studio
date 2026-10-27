@@ -1,7 +1,7 @@
 name: Client Handoff - Windows and Android
 on:
   push:
-    branches: [client-handoff-windows-android]
+    branches: [client-handoff-windows-android, fix/android-play-protect-release]
   workflow_dispatch:
     inputs:
       run_live_acceptance:
@@ -138,10 +138,38 @@ jobs:
           grep -Fqx 'assets/index.html' /tmp/irfan-apk-entries.txt
           grep -q '^assets/_next/' /tmp/irfan-apk-entries.txt
           grep -Eq '^classes([0-9]+)?[.]dex$' /tmp/irfan-apk-entries.txt
+      - name: Verify APK signature and write Play Protect diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find apps/android/app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          REPORT="apps/android/app/build/reports/jarvis-android-signature-report"
+          mkdir -p "$REPORT"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 | tee "$REPORT/apksigner-verify.txt"
+          sha256sum "$APK" | tee "$REPORT/SHA256SUMS.txt"
+          {
+            echo "JARVIS Android build diagnostics"
+            echo "Build variant: DEBUG (sideload test only)"
+            echo "Package ID: com.irfan.companion"
+            echo "App label: JARVIS Companion"
+            echo "Signature integrity: verified by apksigner above"
+            echo "Important: debug signing does not equal a production release signature and does not guarantee Play Protect approval."
+            echo "Sensitive capabilities declared: microphone, camera/flashlight, notification policy, notification posting, foreground microphone service, optional accessibility service, optional notification listener."
+            echo "Play Protect result: must be checked on the physical device; CI cannot query or override Google's device-side verdict."
+          } | tee "$REPORT/REPORT.txt"
       - uses: actions/upload-artifact@v4
         with:
-          name: irfan-client-android-sideload-debug-apk
+          name: jarvis-android-sideload-debug-apk
           path: apps/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-android-signature-diagnostics
+          path: apps/android/app/build/reports/jarvis-android-signature-report/*
           if-no-files-found: error
       - name: Prepare optional owner-controlled Android release keystore
         id: android_signing
@@ -185,7 +213,7 @@ jobs:
         if: ${{ steps.android_signing.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: irfan-client-android-release-signed
+          name: jarvis-android-release-signed
           path: apps/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
   android-emulator:
@@ -198,7 +226,7 @@ jobs:
         with: {distribution: temurin, java-version: '17'}
       - uses: actions/download-artifact@v4
         with:
-          name: irfan-client-android-sideload-debug-apk
+          name: jarvis-android-sideload-debug-apk
           path: android-apk
       - name: Boot Android 13, install actual distributed APK and launch
         uses: reactivecircus/android-emulator-runner@v2
