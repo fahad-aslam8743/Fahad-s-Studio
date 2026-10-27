@@ -10,6 +10,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.*
@@ -114,6 +115,11 @@ class MainActivity: ComponentActivity() {
        if(status==TextToSpeech.SUCCESS){
          ttsReady=true
          voice?.language=Locale.getDefault()
+         voice?.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
+           override fun onStart(utteranceId:String?){emit("irfan-tts-start",JSONObject())}
+           override fun onDone(utteranceId:String?){emit("irfan-tts-done",JSONObject())}
+           override fun onError(utteranceId:String?){emit("irfan-tts-error",JSONObject().put("message","Android speech output failed"))}
+         })
          pendingSpeech?.let{args->try{speakNow(args)}catch(e:Exception){emit("irfan-tts-error",JSONObject().put("message",e.message?:"Speech unavailable"))}}
          pendingSpeech=null
        }
