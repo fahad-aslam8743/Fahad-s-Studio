@@ -24,7 +24,8 @@ class NativeTools(private val activity:MainActivity) {
      "screen_brightness" to "CONFIRM","flashlight" to "CONFIRM","dnd" to "CONFIRM",
      "call" to "CONFIRM","sms" to "CONFIRM","notifications_read" to "CONFIRM",
      "accessibility_click" to "CONFIRM","open_website" to "SAFE",
-     "video_download" to "CONFIRM")
+     "video_download" to "CONFIRM","ui_elements" to "CONFIRM",
+     "notification_dismiss" to "CONFIRM")
  val names get()=minimum.keys.toList()
  fun risk(name:String):String {
    val base=minimum[name]?:return "BLOCKED"
@@ -139,12 +140,27 @@ class NativeTools(private val activity:MainActivity) {
       if(!enabled.contains(activity.packageName))return JSONObject().put("status","permission_required").put("permission","Notification access")
       return JSONObject().put("status","completed").put("notifications",JarvisNotificationService.snapshot())
     }
+    "notification_dismiss"->{
+      val key=args.optString("key")
+      require(key.isNotBlank()){"Provide notification key"}
+      if(!JarvisNotificationService.active) return JSONObject().put("status","permission_required").put("permission","Notification access")
+      val dismissed=JarvisNotificationService.dismiss(key)
+      return JSONObject().put("status",if(dismissed)"completed" else "failed")
+    }
     "accessibility_click"->{
       val target=args.optString("label")
       require(target.length in 2..100){"Provide exact visible label"}
       val service=JarvisAccessibilityService.active?:return JSONObject().put("status","permission_required").put("permission","Accessibility service")
       val clicked=service.clickVisible(target)
       return JSONObject().put("status",if(clicked)"completed" else "control_not_found")
+    }
+    "ui_elements"->{
+      val service=JarvisAccessibilityService.active?:return JSONObject().put("status","permission_required").put("permission","Accessibility service")
+      val limit=args.optInt("limit",80)
+      val elements=service.getVisibleElements(limit)
+      return JSONObject().put("status","completed").put("count",elements.length())
+          .put("elements",elements)
+          .put("foreground_package",JarvisAccessibilityService.lastWindowPackage)
     }
     "open_website"->{
       val target=Uri.parse(args.optString("url"))
