@@ -183,9 +183,11 @@ class MainActivity: ComponentActivity() {
           "wake.start"->runOnUiThread{
              val key=args.optString("accessKey")
              if(key.isNotEmpty())SecureStore(this@MainActivity).put("porcupine_key",key)
-             wakeStart();reply(id,JSONObject().put("requested",true))
+             val requested=wakeStart()
+             reply(id,JSONObject().put("requested",requested).put("active",WakeWordService.active))
           }
-          "wake.stop"->runOnUiThread{stopService(Intent(this@MainActivity,WakeWordService::class.java));reply(id,JSONObject().put("stopped",true))}
+          "wake.status"->reply(id,JSONObject().put("active",WakeWordService.active))
+          "wake.stop"->runOnUiThread{stopService(Intent(this@MainActivity,WakeWordService::class.java));reply(id,JSONObject().put("stopped",true).put("active",false))}
           else->reply(id,null,"Unknown native action")
          }
        }
@@ -244,10 +246,11 @@ class MainActivity: ComponentActivity() {
    try{recognizer.launch(intent)}catch(e:Exception){if(id!=null)reply(id,null,"No speech recognition app available")}
  }
  private fun wakeToggle(){if(WakeWordService.active)stopService(Intent(this,WakeWordService::class.java))else wakeStart()}
- private fun wakeStart(){
-   if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),100);return}
-   if(SecureStore(this).get("porcupine_key").isNullOrBlank()){Toast.makeText(this,"Enter Picovoice AccessKey in the Android tab",Toast.LENGTH_LONG).show();return}
-   startForegroundService(Intent(this,WakeWordService::class.java))
+ private fun wakeStart():Boolean {
+   if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),100);return false}
+   if(SecureStore(this).get("porcupine_key").isNullOrBlank()){Toast.makeText(this,"Enter Picovoice AccessKey in the Android tab",Toast.LENGTH_LONG).show();return false}
+   return try{startForegroundService(Intent(this,WakeWordService::class.java));true}
+   catch(e:Exception){Toast.makeText(this,e.message?:"Could not start wake listener",Toast.LENGTH_LONG).show();false}
  }
  private val polling=object:Runnable{
    override fun run(){
