@@ -59,7 +59,7 @@ class MainActivity: ComponentActivity() {
      if(error==null)packet.put("value",value?:JSONObject())else packet.put("error",error.take(300))
      runOnUiThread {if(::web.isInitialized)web.evaluateJavascript("window.__irfanNativeReply&&window.__irfanNativeReply("+packet.toString()+")",null)}
  }
- private fun emit(name:String,detail:JSONObject){
+ fun emit(name:String,detail:JSONObject){
      runOnUiThread {if(::web.isInitialized)web.evaluateJavascript("window.dispatchEvent(new CustomEvent("+JSONObject.quote(name)+",{detail:"+detail.toString()+"}))",null)}
  }
  private fun error(id:String,e:Throwable){android.util.Log.w("IrfanCompanion",e.javaClass.simpleName);reply(id,null,e.message?:"Action unavailable")}
@@ -179,6 +179,7 @@ class MainActivity: ComponentActivity() {
              if(!ttsReady){pendingSpeech=JSONObject(args.toString());reply(id,JSONObject().put("queued",true))}
              else try{reply(id,speakNow(args))}catch(e:Exception){error(id,e)}
           }
+          "stopSpeaking"->runOnUiThread{voice?.stop();reply(id,JSONObject().put("stopped",true))}
           "wake.selectModel"->runOnUiThread{wakeModelRequest=id;modelPicker.launch(arrayOf("*/*"))}
           "wake.start"->runOnUiThread{
              val key=args.optString("accessKey")
