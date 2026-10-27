@@ -66,8 +66,8 @@ jobs:
           $cert = Join-Path $env:RUNNER_TEMP 'jarvis-studio-authenticode.pfx'
           [System.IO.File]::WriteAllBytes($cert, $bytes)
           if ((Get-Item $cert).Length -lt 256) { throw 'Windows signing certificate is too small to be valid.' }
-          "CSC_LINK=$cert" >> $env:GITHUB_ENV
-          "CSC_KEY_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
+          "WIN_CSC_LINK=$cert" >> $env:GITHUB_ENV
+          "WIN_CSC_KEY_PASSWORD=$env:WINDOWS_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
           "enabled=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - run: pnpm --filter @irfan/desktop dist:win
         env:
