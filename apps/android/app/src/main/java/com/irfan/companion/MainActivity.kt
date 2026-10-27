@@ -219,7 +219,7 @@ class MainActivity: ComponentActivity() {
                  work.execute{
                    try{backend.call("/relay/complete","POST",JSONObject().put("id",id)
                      .put("status",if(result.optString("status") in setOf("completed","opened","opened_settings","dialer_opened","sms_composer_opened","download_started"))"completed" else "rejected")
-                     .put("detail",result.toString())}catch(_:Exception){}
+                     .put("detail",result.toString()))}catch(_:Exception){}
                  }
                }
              }
