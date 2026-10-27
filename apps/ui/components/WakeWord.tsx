@@ -39,23 +39,3 @@ export default function WakeWord({onCommand,onGreeting,language='en-US',wakeName
   {problem&&<p role="status" className="text-xs text-amber-300">{problem}</p>}
  </div>
 }
-,'i'));
-    if(!match)continue;
-    const command=match[1].trim();
-    if(command){stop();commandRef.current(command)}
-    else {greetRef.current()}
-   }
-  };
-  rec.onerror=(event:any)=>{
-   if(['not-allowed','service-not-allowed','audio-capture','network','language-not-supported'].includes(event.error)){armed.current=false;setActive(false);setProblem('Wake-word listener unavailable: '+event.error+'. Use push-to-talk.')}
-  };
-  rec.onend=()=>{if(armed.current&&recognizer.current===rec){try{rec.start()}catch{armed.current=false;setActive(false);setProblem('Wake word stopped; please enable it again.')}}};
-  try{rec.start()}catch(e){armed.current=false;recognizer.current=null;setActive(false);setProblem('Could not start listener: '+String(e))}
- }
- useEffect(()=>()=>{armed.current=false;recognizer.current?.stop();recognizer.current=null},[]);
- return <div className="space-y-1">
-  <button className="btn w-full" type="button" aria-pressed={active} onClick={start}>{active?'Disable wake word':'Enable “Hey {wakeName}”'}</button>
-  <p className="text-xs text-cyan-600">{active?'Listening for “Hey {wakeName}” while this window is running (microphone active)':'Off by default; you control microphone access'}</p>
-  {problem&&<p role="status" className="text-xs text-amber-300">{problem}</p>}
- </div>
-}
