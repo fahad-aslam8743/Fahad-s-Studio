@@ -66,6 +66,7 @@ try {
 } catch { record('Gemini streaming chat', 'FAIL', 'Authenticated Gemini request could not be completed.'); }
 
 let deviceId = null;
+let deviceToken = null;
 try {
   const p = await request('/devices/pair', { method: 'POST', body: {} });
   if (p.response.status !== 200 || typeof p.value?.code !== 'string') {
@@ -76,7 +77,10 @@ try {
       record('Device pairing flow', 'FAIL', 'Could not redeem one-time code (' + statusText(redeemed.response) + ').');
     } else {
       deviceId = redeemed.value.deviceId;
-      const session = await request('/devices', { token: redeemed.value.token });
+      deviceToken = redeemed.value.token;
+      const replay = await request('/devices/redeem', { method: 'POST', token: null, body: { code: p.value.code, label: 'release-acceptance-replay-test' } });
+      record('One-time code replay protection', replay.response.status === 409 ? 'PASS' : 'FAIL', replay.response.status === 409 ? 'A redeemed one-time code was rejected on reuse.' : 'Expected HTTP 409 on code reuse; received ' + statusText(replay.response) + '.');
+      const session = await request('/devices', { token: deviceToken });
       const ok = session.response.status === 200 && session.value?.paired === true && session.value?.platform === 'android';
       record('Device pairing flow', ok ? 'PASS' : 'FAIL', ok ? 'One-time code redeemed and device token authenticated.' : 'Device token did not authenticate (' + statusText(session.response) + ').');
     }
@@ -88,6 +92,10 @@ finally {
       const r = await request('/devices/revoke', { method: 'POST', body: { id: deviceId } });
       const ok = r.response.status === 200 && r.value?.revoked === true;
       record('Device test cleanup', ok ? 'PASS' : 'FAIL', ok ? 'Temporary device was revoked.' : 'Revocation was not confirmed (' + statusText(r.response) + ').');
+      try {
+        const after = await request('/devices', { token: deviceToken });
+        record('Revoked device token rejection', after.response.status === 401 ? 'PASS' : 'FAIL', after.response.status === 401 ? 'Revoked token was rejected with HTTP 401.' : 'Expected HTTP 401 after revocation; received ' + statusText(after.response) + '.');
+      } catch { record('Revoked device token rejection', 'FAIL', 'Could not verify the token was rejected after revocation.'); }
     } catch { record('Device test cleanup', 'FAIL', 'Could not confirm revocation of the temporary device.'); }
   }
 }
