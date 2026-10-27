@@ -28,7 +28,7 @@ export default function AndroidPanel({request}:{request:(path:string,init?:Reque
   </div>
   <div className="border-t border-cyan-900 pt-2 space-y-2">
    <h3>On-device wake word</h3>
-   <p className="text-xs">Requires Picovoice AccessKey; mic indicator stays visible. Starts only by your action.</p>
+   <p className="text-xs">Requires Picovoice AccessKey; mic indicator stays visible. Built-in mode listens for JARVIS. To use a different wake phrase, select a matching custom .ppn model generated in Picovoice Console.</p>
    <input className="input w-full" type="password" placeholder="Picovoice AccessKey (saved in Android Keystore)" value={key} onChange={e=>setKey(e.target.value)}/>
    <button className="btn" onClick={()=>void run(async()=>{const result=await nativeCall('wake.start',{accessKey:key});setKey('');return result})}>Enable Jarvis wake word</button>
    <button className="btn ml-2" onClick={()=>void run(()=>nativeCall('wake.stop'))}>Disable</button><button className="btn ml-2" onClick={()=>void run(()=>nativeCall('wake.selectModel'))}>Choose custom .ppn wake model</button>
@@ -48,7 +48,7 @@ export default function AndroidPanel({request}:{request:(path:string,init?:Reque
    <textarea className="input w-full" rows={4} maxLength={4000} placeholder="WhatsApp message to prepare" value={waBody} onChange={e=>setWaBody(e.target.value)}/>
    <button className="btn" disabled={!connected||busy||!waBody.trim()} onClick={()=>void run(async()=>{
      const to=waNumber.replace(/[^0-9]/g,'');
-     if(!/^[1-9]\\d{6,15}$/.test(to)||waBody.length>4000)throw Error('Use a full international number and a message under 4000 characters');
+     if(!/^[1-9]\d{6,15}$/.test(to)||waBody.length>4000)throw Error('Use a full international number and a message under 4000 characters');
      return request('/relay/submit',{method:'POST',body:JSON.stringify({target:'pc',tool:'whatsapp_draft',args:{to,body:waBody}})});
    })}>Queue WhatsApp draft for Windows review</button>
   </div>
