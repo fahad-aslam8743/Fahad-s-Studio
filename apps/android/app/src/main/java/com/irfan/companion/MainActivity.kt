@@ -32,6 +32,8 @@ class MainActivity: ComponentActivity() {
  private var speechId:String?=null
  private var wakeModelRequest:String?=null
  private var voice:TextToSpeech?=null
+ private var ttsReady=false
+ private var pendingSpeech:JSONObject?=null
  private var visible=false
  private val seen=mutableSetOf<String>()
  private val modelPicker=registerForActivityResult(ActivityResultContracts.OpenDocument()){uri->
@@ -61,10 +63,61 @@ class MainActivity: ComponentActivity() {
      runOnUiThread {if(::web.isInitialized)web.evaluateJavascript("window.dispatchEvent(new CustomEvent("+JSONObject.quote(name)+",{detail:"+detail.toString()+"}))",null)}
  }
  private fun error(id:String,e:Throwable){android.util.Log.w("IrfanCompanion",e.javaClass.simpleName);reply(id,null,e.message?:"Action unavailable")}
+ private fun speakNow(args:JSONObject):JSONObject {
+   val text=args.optString("text").trim().take(3000)
+   require(text.isNotEmpty()){"Nothing to speak"}
+   val requested=args.optString("language","auto").lowercase(Locale.ROOT)
+   val language=if(requested=="auto"){
+     when {
+       Regex("[\\u0600-\\u06FF]").containsMatchIn(text)->"ur"
+       Regex("[\\u0900-\\u097F]").containsMatchIn(text)->"hi"
+       else->Locale.getDefault().language.ifBlank{"en"}
+     }
+   } else requested
+   val locale=when(language){
+     "ur"->Locale.forLanguageTag("ur-PK")
+     "hi"->Locale.forLanguageTag("hi-IN")
+     "ar"->Locale.forLanguageTag("ar")
+     "es"->Locale.forLanguageTag("es")
+     "fr"->Locale.forLanguageTag("fr")
+     "de"->Locale.forLanguageTag("de")
+     "zh"->Locale.forLanguageTag("zh-CN")
+     "ja"->Locale.forLanguageTag("ja")
+     else->Locale.forLanguageTag("en-US")
+   }
+   val tts=voice?:throw IllegalStateException("Android speech engine is unavailable")
+   val languageStatus=tts.setLanguage(locale)
+   if(languageStatus==TextToSpeech.LANG_MISSING_DATA||languageStatus==TextToSpeech.LANG_NOT_SUPPORTED){
+     tts.language=Locale.getDefault()
+   } else {
+     val gender=args.optString("gender","female").lowercase(Locale.ROOT)
+     val matching=tts.voices?.firstOrNull{v->
+       v.locale.language==locale.language &&
+       (v.name.contains(gender,true)||v.features.any{it.contains("gender="+gender,true)})
+     }
+     if(matching!=null)tts.voice=matching
+   }
+   when(args.optString("persona","calm")){
+     "energetic"->tts.setSpeechRate(1.08f)
+     "romantic"->tts.setSpeechRate(0.96f)
+     else->tts.setSpeechRate(1.0f)
+   }
+   val result=tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"jarvis-"+System.currentTimeMillis())
+   if(result==TextToSpeech.ERROR)throw IllegalStateException("Android could not start speech output")
+   return JSONObject().put("spoken",true).put("language",locale.toLanguageTag())
+ }
+
  override fun onCreate(savedInstanceState:Bundle?){
      super.onCreate(savedInstanceState)
      backend=Backend(this);tools=NativeTools(this)
-     voice=TextToSpeech(this){if(it==TextToSpeech.SUCCESS)voice?.language=Locale.getDefault()}
+     voice=TextToSpeech(this){status->
+       if(status==TextToSpeech.SUCCESS){
+         ttsReady=true
+         voice?.language=Locale.getDefault()
+         pendingSpeech?.let{args->try{speakNow(args)}catch(e:Exception){emit("irfan-tts-error",JSONObject().put("message",e.message?:"Speech unavailable"))}}
+         pendingSpeech=null
+       }
+     }
      val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(0xff030815.toInt())}
      val bar=LinearLayout(this)
      fun button(label:String,click:()->Unit){bar.addView(Button(this).apply{text=label;setOnClickListener{click()}},LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f))}
@@ -74,7 +127,7 @@ class MainActivity: ComponentActivity() {
          .addPathHandler("/",WebViewAssetLoader.AssetsPathHandler(this)).build()
      web=WebView(this)
      web.settings.javaScriptEnabled=true
-     web.settings.domStorageEnabled=false
+     web.settings.domStorageEnabled=true
      web.settings.allowFileAccess=false
      web.settings.allowContentAccess=false
      web.settings.allowFileAccessFromFileURLs=false
@@ -122,7 +175,10 @@ class MainActivity: ComponentActivity() {
           "tools.policy"->runOnUiThread{try{reply(id,tools.setRisk(args.getString("name"),args.getString("risk")))}catch(e:Exception){error(id,e)}}
           "permissions.open"->runOnUiThread{permissionsDialog();reply(id,JSONObject().put("opened",true))}
           "speech"->runOnUiThread{speech(id)}
-          "speak"->runOnUiThread{voice?.speak(args.optString("text").take(3000),TextToSpeech.QUEUE_FLUSH,null,"irfan");reply(id,JSONObject().put("spoken",true))}
+          "speak"->runOnUiThread{
+             if(!ttsReady){pendingSpeech=JSONObject(args.toString());reply(id,JSONObject().put("queued",true))}
+             else try{reply(id,speakNow(args))}catch(e:Exception){error(id,e)}
+          }
           "wake.selectModel"->runOnUiThread{wakeModelRequest=id;modelPicker.launch(arrayOf("*/*"))}
           "wake.start"->runOnUiThread{
              val key=args.optString("accessKey")
