@@ -110,6 +110,9 @@ class MainActivity: ComponentActivity() {
 
  override fun onCreate(savedInstanceState:Bundle?){
      super.onCreate(savedInstanceState)
+     window.statusBarColor=0xff030815.toInt()
+     window.navigationBarColor=0xff030815.toInt()
+     window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
      backend=Backend(this);tools=NativeTools(this)
      voice=TextToSpeech(this){status->
        if(status==TextToSpeech.SUCCESS){
