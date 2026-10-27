@@ -209,34 +209,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-boot-timeout: 600
-          script: |
-            set -eu
-            adb wait-for-device
-            adb install -r android-apk/app-debug.apk
-            adb shell am force-stop com.irfan.companion || true
-            adb shell am start -W -n com.irfan.companion/.MainActivity
-            # Require an actual running application process; retry briefly for slow emulator startups.
-            running=0
-            for attempt in $(seq 1 15); do
-              if adb shell pidof com.irfan.companion 2>/dev/null | tr -d '\\r' | grep -Eq '[0-9]+'; then
-                running=1
-                break
-              fi
-              sleep 2
-            done
-            if [ "$running" -ne 1 ]; then
-              echo "Jarvis companion process did not stay running."
-              adb logcat -d -t 1000 || true
-              exit 1
-            fi
-            if adb logcat -d -t 1000 | grep -F 'Process: com.irfan.companion'; then exit 1; fi
-            # Screenshot is diagnostic only. An intermittent emulator/ADB disconnect must not
-            # invalidate a successful install + process + no-crash smoke test.
-            if adb shell screencap -p /sdcard/irfan-home.png && adb pull /sdcard/irfan-home.png android-emulator-home.png; then
-              echo "Captured emulator screenshot."
-            else
-              echo "Screenshot unavailable (emulator transport issue); app launch checks passed."
-            fi
+          script: bash scripts/android-emulator-smoke.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
