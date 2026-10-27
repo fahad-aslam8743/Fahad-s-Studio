@@ -26,7 +26,7 @@ async function request(path, options = {}) {
   const response = await fetch(baseUrl + path, {
     method: options.method || 'GET', headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    signal: AbortSignal.timeout(20000)
+    signal: AbortSignal.timeout(options.timeoutMs ?? 30000)
   });
   const raw = await response.text();
   let value = null;
