@@ -30,7 +30,7 @@ If no key exists, create one in a secure local environment and keep it outside t
 
 1. Add the same owner APP_TOKEN expected by the Cloudflare Worker as the GitHub Actions secret JARVIS_APP_TOKEN. Never paste it into chat, source code, or PR comments.
 2. Optionally add the repository variable JARVIS_BASE_URL. It defaults to https://fahad-s-studio.notxfahad.workers.dev.
-3. Open Actions → Client Handoff — Windows and Android → Run workflow, set run_live_acceptance to true, and start the workflow.
+3. Open Actions → Jarvis Release Acceptance → Run workflow on the repository's default branch (main). Check `run_live_acceptance` and run it. This dispatcher checks out the current `client-handoff-windows-android` candidate to execute the script, without requiring PR #7 to be merged.
 4. Download the jarvis-live-acceptance-report artifact or read the workflow summary. Resolve every FAIL and BLOCKED item before sign-off.
 
 The live check uses the owner token, verifies access control, sends one small diagnostic prompt to Gemini without saving a test conversation, creates and immediately revokes a temporary pairing record, verifies code replay is rejected and the revoked token fails, and probes Gmail without returning mailbox contents. It never sends an email or launches paid video. The check requires live network access and consumes a small amount of Gemini usage.
