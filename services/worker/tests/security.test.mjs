@@ -129,3 +129,31 @@ test('video diagnostics reports configuration without making a paid provider req
   providerRequestMade:false,paidGenerationSubmitted:false
  });
 });
+
+
+test('a zero-dollar FAL daily budget blocks preparation instead of falling back to the default',async()=>{
+ const old=globalThis.fetch;
+ const calls=[];
+ globalThis.fetch=async(url,opts={})=>{
+  const u=String(url);calls.push({url:u,method:opts.method||'GET'});
+  if(u.includes('/rest/v1/jarvis_video_usage'))return new Response('[]',{status:200,headers:{'content-type':'application/json'}});
+  throw Error('Unexpected network request from zero-budget preparation: '+u);
+ };
+ try{
+  const response=await handleVideo(
+   new Request('https://example.com/video/prepare',{
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({kind:'text',prompt:'test prompt',duration:5,resolution:'720p',aspectRatio:'16:9'})
+   }),
+   {FAL_KEY:'fake-provider-key',FAL_DAILY_LIMIT_USD:'0',SUPABASE_URL:'https://fake.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'fake-service-role'},
+   '/video/prepare',
+   async()=>({}),
+   ()=>''
+  );
+  assert.equal(response.status,403);
+  assert.match((await response.json()).error,/Daily paid generation budget exceeded/);
+  assert.equal(calls.some(x=>x.url.includes('/rest/v1/jarvis_video_jobs')&&x.method==='POST'),false);
+  assert.equal(calls.some(x=>x.url.includes('fal.ai')),false);
+ }finally{globalThis.fetch=old}
+});

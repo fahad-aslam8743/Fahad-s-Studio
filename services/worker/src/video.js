@@ -61,7 +61,7 @@ export async function handleVideo(request,env,path,gemini,textOf){
  if(path==='/video/prepare'&&method==='POST'){
   const b=await request.json(),c=choice(b);
   if(!env.FAL_KEY)return out({error:'Paid mode not configured; add FAL_KEY on backend'},503);
-  const today=new Date().toISOString().slice(0,10),limit=Number(env.FAL_DAILY_LIMIT_USD||5);
+  const today=new Date().toISOString().slice(0,10),limit=Number(env.FAL_DAILY_LIMIT_USD??5);
   const usage=await persist(env,'jarvis_video_usage','GET','?select=estimated_usd&recorded_at=gte.'+today+'T00:00:00Z&event=eq.submitted');
   const total=usage.reduce((n,x)=>n+Number(x.estimated_usd),0);
   if(!Number.isFinite(limit)||limit<0||total+c.estimate>limit)return out({error:'Daily paid generation budget exceeded',estimateUsd:c.estimate,dailyLimitUsd:limit},403);
