@@ -30,7 +30,7 @@ export default function AndroidPanel({request}:{request:(path:string,init?:Reque
    <h3>On-device wake word</h3>
    <p className="text-xs">Requires Picovoice AccessKey; mic indicator stays visible. Built-in mode listens for JARVIS. To use a different wake phrase, select a matching custom .ppn model generated in Picovoice Console.</p>
    <input className="input w-full" type="password" placeholder="Picovoice AccessKey (saved in Android Keystore)" value={key} onChange={e=>setKey(e.target.value)}/>
-   <button className="btn" onClick={()=>void run(async()=>{const result=await nativeCall('wake.start',{accessKey:key});setKey('');return result})}>Enable Jarvis wake word</button>
+   <button className="btn" onClick={()=>void run(async()=>{const result=await nativeCall<{requested:boolean}>('wake.start',{accessKey:key});setKey('');if(!result.requested)throw Error('Wake listener was not started. Grant microphone permission and enter a Picovoice AccessKey.');await new Promise(resolve=>setTimeout(resolve,1200));const state=await nativeCall<{active:boolean}>('wake.status');if(!state.active)throw Error('Wake listener failed to start. Check the AccessKey, microphone permission, and selected .ppn model.');return {status:'Wake word is active',...state}})}>Enable Jarvis wake word</button>
    <button className="btn ml-2" onClick={()=>void run(()=>nativeCall('wake.stop'))}>Disable</button><button className="btn ml-2" onClick={()=>void run(()=>nativeCall('wake.selectModel'))}>Choose custom .ppn wake model</button>
    <button className="btn ml-2" onClick={()=>void run(()=>nativeCall('speech'))}>Native speech recognition</button>
   </div>
