@@ -1,0 +1,38 @@
+name: Jarvis Release Acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      run_live_acceptance:
+        description: "Run authenticated Gemini and device checks; no email send or paid video"
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  live-acceptance:
+    if: ${{ inputs.run_live_acceptance }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the release candidate branch (not the main branch)
+        uses: actions/checkout@v4
+        with:
+          ref: client-handoff-windows-android
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check acceptance runner syntax
+        run: node --check scripts/release-acceptance.mjs
+      - name: Run authenticated, non-destructive release smoke checks
+        env:
+          JARVIS_BASE_URL: ${{ vars.JARVIS_BASE_URL }}
+          JARVIS_APP_TOKEN: ${{ secrets.JARVIS_APP_TOKEN }}
+        run: node scripts/release-acceptance.mjs
+      - name: Upload release acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jarvis-live-acceptance-report
+          path: release-acceptance-report.md
+          if-no-files-found: ignore
