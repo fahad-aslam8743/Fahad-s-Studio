@@ -18,7 +18,7 @@ test('streaming provider errors expose safe Google diagnostics without leaking k
  globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:403,status:'PERMISSION_DENIED',message:'Key rejected: '+fakeKey}}),{status:403,headers:{'content-type':'application/json'}});
  try{
   await assert.rejects(async()=>{for await(const _ of streamGemini({GEMINI_API_KEY:'test'},'x',{})){}},error=>{
-   assert.match(error.message,/HTTP 403/);assert.match(error.message,/PERMISSION_DENIED/);assert.match(error.message,/\\[redacted\\]/);assert.doesNotMatch(error.message,/AIzaSyA{20,}/);return true;
+   assert.match(error.message,/HTTP 403/);assert.match(error.message,/PERMISSION_DENIED/);assert.match(error.message,/\[redacted\]/);assert.doesNotMatch(error.message,/AIzaSyA{20,}/);return true;
   });
  }finally{globalThis.fetch=old}
 });
