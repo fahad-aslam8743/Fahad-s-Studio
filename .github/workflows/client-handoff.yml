@@ -23,6 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: {node-version: '22'}
       - run: pnpm install --no-frozen-lockfile
+      - run: node --check scripts/release-acceptance.mjs
       - run: pnpm --filter @irfan/worker test
       - run: pnpm --filter @irfan/desktop build
       - run: node --test apps/desktop/tests/whatsapp.test.cjs
