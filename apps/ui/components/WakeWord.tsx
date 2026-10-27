@@ -1,7 +1,7 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
 type SpeechLike={continuous:boolean;interimResults:boolean;lang:string;onresult:((e:any)=>void)|null;onend:(()=>void)|null;onerror:((e:any)=>void)|null;start:()=>void;stop:()=>void};
-export default function WakeWord({onCommand,onGreeting,language='en-US'}:{onCommand:(command:string)=>void;onGreeting:()=>void;language?:string}){
+export default function WakeWord({onCommand,onGreeting,language='en-US',wakeName='Jarvis'}:{onCommand:(command:string)=>void;onGreeting:()=>void;language?:string;wakeName?:string}){
  const [active,setActive]=useState(false),[problem,setProblem]=useState('');
  const recognizer=useRef<SpeechLike|null>(null),armed=useRef(false);
  const commandRef=useRef(onCommand),greetRef=useRef(onGreeting);
@@ -18,7 +18,8 @@ export default function WakeWord({onCommand,onGreeting,language='en-US'}:{onComm
    for(let i=event.resultIndex;i<event.results.length;i++){
     if(!event.results[i].isFinal)continue;
     const heard=String(event.results[i][0]?.transcript||'').trim();
-    const match=heard.match(/\b(?:hey|hi|okay|ok)\s+jarvis\b[\s,.:;!?-]*(.*)$/i);
+    const normalizedName=(wakeName.trim()||'Jarvis').replace(/[^a-z0-9 ]/gi,'').trim().replace(/\s+/g,'\\s+');
+    const match=heard.match(new RegExp('\\b(?:hey|hi|okay|ok)\\s+'+normalizedName+'\\b[\\s,.:;!?-]*(.*)
     if(!match)continue;
     const command=match[1].trim();
     if(command){stop();commandRef.current(command)}
@@ -33,8 +34,28 @@ export default function WakeWord({onCommand,onGreeting,language='en-US'}:{onComm
  }
  useEffect(()=>()=>{armed.current=false;recognizer.current?.stop();recognizer.current=null},[]);
  return <div className="space-y-1">
-  <button className="btn w-full" type="button" aria-pressed={active} onClick={start}>{active?'Disable wake word':'Enable “Hey Jarvis”'}</button>
-  <p className="text-xs text-cyan-600">{active?'Listening for “Hey Jarvis” while this window is running (microphone active)':'Off by default; you control microphone access'}</p>
+  <button className="btn w-full" type="button" aria-pressed={active} onClick={start}>{active?'Disable wake word':'Enable “Hey {wakeName}”'}</button>
+  <p className="text-xs text-cyan-600">{active?'Listening for “Hey {wakeName}” while this window is running (microphone active)':'Off by default; you control microphone access'}</p>
+  {problem&&<p role="status" className="text-xs text-amber-300">{problem}</p>}
+ </div>
+}
+,'i'));
+    if(!match)continue;
+    const command=match[1].trim();
+    if(command){stop();commandRef.current(command)}
+    else {greetRef.current()}
+   }
+  };
+  rec.onerror=(event:any)=>{
+   if(['not-allowed','service-not-allowed','audio-capture','network','language-not-supported'].includes(event.error)){armed.current=false;setActive(false);setProblem('Wake-word listener unavailable: '+event.error+'. Use push-to-talk.')}
+  };
+  rec.onend=()=>{if(armed.current&&recognizer.current===rec){try{rec.start()}catch{armed.current=false;setActive(false);setProblem('Wake word stopped; please enable it again.')}}};
+  try{rec.start()}catch(e){armed.current=false;recognizer.current=null;setActive(false);setProblem('Could not start listener: '+String(e))}
+ }
+ useEffect(()=>()=>{armed.current=false;recognizer.current?.stop();recognizer.current=null},[]);
+ return <div className="space-y-1">
+  <button className="btn w-full" type="button" aria-pressed={active} onClick={start}>{active?'Disable wake word':'Enable “Hey {wakeName}”'}</button>
+  <p className="text-xs text-cyan-600">{active?'Listening for “Hey {wakeName}” while this window is running (microphone active)':'Off by default; you control microphone access'}</p>
   {problem&&<p role="status" className="text-xs text-amber-300">{problem}</p>}
  </div>
 }
