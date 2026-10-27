@@ -12,3 +12,17 @@ test('streaming Gemini errors are surfaced, not replaced with an invented respon
  const old=globalThis.fetch;globalThis.fetch=async()=>new Response('no',{status:429});
  try{await assert.rejects(async()=>{for await(const _ of streamGemini({GEMINI_API_KEY:'test'},'x',{})){}},/429/)}finally{globalThis.fetch=old}
 });
+
+test('streaming provider errors expose safe Google diagnostics without leaking keys',async()=>{
+ const old=globalThis.fetch;const fakeKey='AIzaSy'+ 'A'.repeat(35);
+ globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:403,status:'PERMISSION_DENIED',message:'Key rejected: '+fakeKey}}),{status:403,headers:{'content-type':'application/json'}});
+ try{
+  await assert.rejects(async()=>{for await(const _ of streamGemini({GEMINI_API_KEY:'test'},'x',{})){}},error=>{
+   assert.match(error.message,/HTTP 403/);assert.match(error.message,/PERMISSION_DENIED/);assert.match(error.message,/\\[redacted\\]/);assert.doesNotMatch(error.message,/AIzaSyA{20,}/);return true;
+  });
+ }finally{globalThis.fetch=old}
+});
+test('streaming provider timeout is reported explicitly',async()=>{
+ const old=globalThis.fetch;globalThis.fetch=async()=>{const error=new Error('timed out');error.name='TimeoutError';throw error};
+ try{await assert.rejects(async()=>{for await(const _ of streamGemini({GEMINI_API_KEY:'test'},'x',{})){}},/Gemini streaming provider timed out after 10000 ms/)}finally{globalThis.fetch=old}
+});
