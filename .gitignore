@@ -9,3 +9,10 @@ node_modules/
 *.log
 
 *.tsbuildinfo
+
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+.wrangler/
+**/.wrangler/

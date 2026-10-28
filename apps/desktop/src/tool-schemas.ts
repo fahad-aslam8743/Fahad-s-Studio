@@ -20,6 +20,29 @@ export const toolInputSchemas = {
     ],
     "additionalProperties": false
   },
+  "focus_app": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "pid": {
+        "type": "number"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "open_settings": {
+    "type": "object",
+    "properties": {
+      "page": {
+        "type": "string"
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
   "list_running_apps": {
     "type": "object",
     "properties": {},
@@ -92,6 +115,78 @@ export const toolInputSchemas = {
     ],
     "additionalProperties": false
   },
+  "browser_open": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "additionalProperties": false
+  },
+  "browser_search": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      },
+      "engine": {
+        "type": "string",
+        "enum": ["google", "youtube"]
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "additionalProperties": false
+  },
+  "youtube_play": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "additionalProperties": false
+  },
+  "browser_inspect": {
+    "type": "object",
+    "properties": {
+      "mode": {
+        "type": "string",
+        "enum": ["summary", "search", "tabs"]
+      },
+      "query": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "mode"
+    ],
+    "additionalProperties": false
+  },
+  "browser_nav": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": ["back", "forward", "reload", "new_tab", "close_tab"]
+      },
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "additionalProperties": false
+  },
   "youtube_search": {
     "type": "object",
     "properties": {
@@ -107,8 +202,7 @@ export const toolInputSchemas = {
       }
     },
     "required": [
-      "query",
-      "mode"
+      "query"
     ],
     "additionalProperties": false
   },

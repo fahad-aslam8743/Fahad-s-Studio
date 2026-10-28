@@ -14,9 +14,17 @@ try {
     if($argsInput.pid){return Get-Process -Id ([int]$argsInput.pid) -ErrorAction Stop}
     if(-not $argsInput.name){throw 'Provide app name or PID'}
     $search=[string]$argsInput.name
+    $trimmed=$search.Replace(' ','')
     $found=@(Get-Process | Where-Object {$_.MainWindowHandle -ne 0 -and ($_.ProcessName -like ('*'+$search+'*') -or $_.MainWindowTitle -like ('*'+$search+'*'))})
-    if($found.Count -eq 0){throw 'No matching running window'}
-    if($found.Count -gt 1){Out @{status='ambiguous';choices=@($found|Select-Object ProcessName,Id,MainWindowTitle)}}
+    if($found.Count -eq 0){
+      $found=@(Get-Process | Where-Object {$_.MainWindowHandle -ne 0 -and ($_.ProcessName -like ('*'+$trimmed+'*') -or $_.MainWindowTitle -like ('*'+$trimmed+'*'))})
+    }
+    if($found.Count -eq 0){
+      $found=@(Get-Process | Where-Object {$_.ProcessName -like ('*'+$search+'*') -or $_.ProcessName -like ('*'+$trimmed+'*')})
+    }
+    if($found.Count -eq 0){throw "No matching running window for '$search'"}
+    $titled=@($found | Where-Object {$_.MainWindowTitle.Trim().Length -gt 0})
+    if($titled.Count -gt 0){return $titled[0]}
     return $found[0]
   }
   function EditDistance([string]$left,[string]$right) {
@@ -52,29 +60,103 @@ public class NativeWindows {
   switch($name){
    'list_installed_apps' {Out @{apps=@(AppList)}}
    'open_app' {
-    $apps=@(AppList);$q=([string]$a.name).ToLowerInvariant()
+    $q=([string]$a.name).Trim().ToLowerInvariant()
+    $aliases=@{
+      'calc'='calc.exe';'calculator'='calc.exe';'notepad'='notepad.exe';
+      'explorer'='explorer.exe';'file explorer'='explorer.exe';'files'='explorer.exe';
+      'task manager'='taskmgr.exe';'taskmgr'='taskmgr.exe';
+      'cmd'='cmd.exe';'terminal'='wt.exe';'windows terminal'='wt.exe';
+      'settings'='ms-settings:';'chrome'='chrome.exe';'google chrome'='chrome.exe';
+      'edge'='msedge.exe';'microsoft edge'='msedge.exe';
+      'code'='code.cmd';'vscode'='code.cmd';'vs code'='code.cmd';
+      'whatsapp'='whatsapp:'
+    }
+    if($aliases.ContainsKey($q)){
+      try{
+        Start-Process -FilePath $aliases[$q]
+        WinApi
+        Start-Sleep -Milliseconds 350
+        for($i=0;$i -lt 10;$i++){
+          try{
+            $proc=TargetProcess @{name=$q}
+            if($proc -and $proc.MainWindowHandle -ne 0){
+              [NativeWindows]::ShowWindow($proc.MainWindowHandle,3)|Out-Null
+              [NativeWindows]::SetForegroundWindow($proc.MainWindowHandle)|Out-Null
+              break
+            }
+          }catch{}
+          Start-Sleep -Milliseconds 150
+        }
+        Out @{status='opened';app=$q;target=$aliases[$q]}
+      }catch{}
+    }
+    $apps=@(AppList)
     $ranked=@($apps|ForEach-Object {$label=[string]$_.name;$lower=$label.ToLowerInvariant();$score=if($lower -eq $q){0}elseif($lower.StartsWith($q)){1}elseif($lower.Contains($q)){2}else{$distance=EditDistance $lower $q;if($distance -le [Math]::Max(2,[Math]::Ceiling($q.Length*.25))){3+$distance}else{100}};if($score -lt 100){@{name=$label;id=$_.id;score=$score}}}|Sort-Object score,name)
     if($a.selection){$chosen=$ranked|Where-Object {$_.id -eq $a.selection}|Select-Object -First 1}
     elseif($ranked.Count -eq 1 -or ($ranked.Count -gt 1 -and $ranked[0].score -eq 0 -and $ranked[1].score -ne 0)){$chosen=$ranked[0]}
-    elseif($ranked.Count -gt 0){Out @{status='ambiguous';choices=@($ranked|Select-Object -First 8)}}
+    elseif($ranked.Count -gt 0){
+      if($ranked[0].score -le 2){$chosen=$ranked[0]}
+      else{Out @{status='ambiguous';choices=@($ranked|Select-Object -First 8)}}
+    }
     else {Out @{status='not_found';query=$a.name}}
     $id=[string]$chosen.id
     if($id.EndsWith('.lnk')){Start-Process -FilePath $id}
     else {Start-Process -FilePath 'explorer.exe' -ArgumentList @("shell:AppsFolder\$id")}
+    WinApi
+    Start-Sleep -Milliseconds 350
+    for($i=0;$i -lt 10;$i++){
+      try{
+        $proc=TargetProcess @{name=$chosen.name}
+        if($proc -and $proc.MainWindowHandle -ne 0){
+          [NativeWindows]::ShowWindow($proc.MainWindowHandle,3)|Out-Null
+          [NativeWindows]::SetForegroundWindow($proc.MainWindowHandle)|Out-Null
+          break
+        }
+      }catch{}
+      Start-Sleep -Milliseconds 150
+    }
     Out @{status='opened';app=$chosen.name}
    }
    'list_running_apps' {Out @{apps=@(Get-Process|Where-Object {$_.MainWindowHandle -ne 0}|Select-Object ProcessName,Id,MainWindowTitle)}}
-   'close_app' {$p=TargetProcess $a;Out @{requested=$p.CloseMainWindow();pid=$p.Id}}
+   'close_app' {
+     $p=TargetProcess $a
+     $closed=$p.CloseMainWindow()
+     if(-not $closed){try{$p.Kill();$closed=$true}catch{}}
+     Out @{requested=$closed;pid=$p.Id;processName=$p.ProcessName}
+   }
+   'focus_app' {
+     $p=TargetProcess $a
+     WinApi
+     $hwnd=$p.MainWindowHandle
+     [NativeWindows]::ShowWindow($hwnd,9)|Out-Null
+     $ok=[NativeWindows]::SetForegroundWindow($hwnd)
+     Out @{focused=[bool]$ok;processName=$p.ProcessName;pid=$p.Id;title=$p.MainWindowTitle}
+   }
+   'open_settings' {
+     $p=if($a.page){[string]$a.page}else{''}
+     $uri=if($p -and $p -notmatch '^ms-settings:'){'ms-settings:'+$p}elseif($p){$p}else{'ms-settings:'}
+     Start-Process -FilePath $uri
+     Out @{status='opened';settingsPage=$uri}
+   }
    'window_control' {
      if($a.action -eq 'minimize_all'){$shell=New-Object -ComObject Shell.Application;$shell.MinimizeAll();Out @{ok=$true}}
      $p=TargetProcess $a;if($p.MainWindowHandle -eq 0){throw 'No visible top-level window for process'}
      Add-Type -AssemblyName System.Windows.Forms;WinApi;$hwnd=$p.MainWindowHandle
      switch($a.action){
       'minimize' {$ok=[NativeWindows]::ShowWindow($hwnd,6)}
-      'maximize' {$ok=[NativeWindows]::ShowWindow($hwnd,3)}
-      'restore' {$ok=[NativeWindows]::ShowWindow($hwnd,9)}
+      'maximize' {
+        [NativeWindows]::ShowWindow($hwnd,3)|Out-Null
+        $ok=[NativeWindows]::SetForegroundWindow($hwnd)
+      }
+      'restore' {
+        [NativeWindows]::ShowWindow($hwnd,9)|Out-Null
+        $ok=[NativeWindows]::SetForegroundWindow($hwnd)
+      }
       'close' {$ok=$p.CloseMainWindow()}
-      'focus' {$ok=[NativeWindows]::SetForegroundWindow($hwnd)}
+      'focus' {
+        [NativeWindows]::ShowWindow($hwnd,9)|Out-Null
+        $ok=[NativeWindows]::SetForegroundWindow($hwnd)
+      }
       {$_ -in 'left','right'} {
         $rect=[NativeWindows+RECT]::new();[NativeWindows]::GetWindowRect($hwnd,[ref]$rect)|Out-Null
         $screen=[System.Windows.Forms.Screen]::FromHandle($hwnd).WorkingArea
@@ -95,10 +177,10 @@ public class NativeWindows {
         $ok=[NativeWindows]::MoveWindow($hwnd,$next.Left,$next.Top,$width,$height,$true)
       }
      }
-     Out @{ok=[bool]$ok;action=$a.action}
+     Out @{ok=[bool]$ok;action=$a.action;processName=$p.ProcessName;pid=$p.Id}
    }
    'open_website' {Start-Process -FilePath ([string]$a.url);Out @{opened=$a.url}}
-   'youtube_search' {$u='https://www.youtube.com/results?search_query='+[uri]::EscapeDataString([string]$a.query);Start-Process $u;Out @{opened=$u;note='First-result autoplay requires YouTube API and is not available in this mode'}}
+   'youtube_search' {$u='https://www.youtube.com/results?search_query='+[uri]::EscapeDataString([string]$a.query);Start-Process $u;Out @{opened=$u}}
    'system_volume' {
       WinApi
       $key=if($a.action -eq 'up'){175}elseif($a.action -eq 'down'){174}else{173}
@@ -112,7 +194,7 @@ public class NativeWindows {
      if($a.device -ne 'wifi'){
        $uri=if($a.device -eq 'bluetooth'){'ms-settings:bluetooth'}else{'ms-settings:network-airplanemode'}
        Start-Process -FilePath $uri
-       Out @{status='manual_action_required';device=$a.device;requestedEnabled=$a.enabled;settingsOpened=$uri;note='Reliable automated radio control unavailable without device-specific WinRT permissions'}
+       Out @{status='manual_action_required';device=$a.device;requestedEnabled=$a.enabled;settingsOpened=$uri}
      }
      $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()
      $principal=New-Object System.Security.Principal.WindowsPrincipal($identity)
@@ -124,7 +206,7 @@ public class NativeWindows {
    }
    'dark_mode' {$reg='HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize';Set-ItemProperty -Path $reg -Name AppsUseLightTheme -Value ([int](!$a.enabled));Set-ItemProperty -Path $reg -Name SystemUsesLightTheme -Value ([int](!$a.enabled));Out @{ok=$true;note='Some apps require restart'}}
    'lock_screen' {Start-Process -FilePath 'rundll32.exe' -ArgumentList @('user32.dll,LockWorkStation');Out @{requested=$true}}
-   'sleep_pc' {Start-Process -FilePath 'rundll32.exe' -ArgumentList @('powrprof.dll,SetSuspendState','0,1,0');Out @{requested=$true;note='Hibernate and system policies may alter behavior'}}
+   'sleep_pc' {Start-Process -FilePath 'rundll32.exe' -ArgumentList @('powrprof.dll,SetSuspendState','0,1,0');Out @{requested=$true}}
    'open_folder' {if(-not (Test-Path -LiteralPath ([string]$a.path) -PathType Container)){throw 'Folder not found'};Start-Process -FilePath 'explorer.exe' -ArgumentList @([string]$a.path);Out @{opened=$a.path}}
    'find_file' {$root=if($a.root){[string]$a.root}else{[Environment]::GetFolderPath('MyDocuments')};if(-not(Test-Path -LiteralPath $root -PathType Container)){throw 'Search root missing'};$items=@(Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction SilentlyContinue|Where-Object {$_.Name -like ('*'+[string]$a.name+'*')}|Select-Object -First 30 -ExpandProperty FullName);Out @{files=$items;truncated=($items.Count -ge 30)}}
    'open_file' {if(-not(Test-Path -LiteralPath ([string]$a.path) -PathType Leaf)){throw 'File not found'};Start-Process -FilePath ([string]$a.path);Out @{opened=$a.path}}

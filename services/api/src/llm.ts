@@ -3,10 +3,10 @@ export interface AIProvider {generate(prompt:string):Promise<string>; stream(pro
 export class GeminiProvider implements AIProvider {
   private client:GoogleGenAI;
   constructor(){if(!process.env.GEMINI_API_KEY)throw Error('GEMINI_API_KEY is missing');this.client=new GoogleGenAI({apiKey:process.env.GEMINI_API_KEY});}
-  async generate(prompt:string){const r=await this.client.models.generateContent({model:process.env.GEMINI_MODEL||'gemini-3.8-flash',contents:prompt});return r.text||'';}
-  async *stream(prompt:string){const stream=await this.client.models.generateContentStream({model:process.env.GEMINI_MODEL||'gemini-3.8-flash',contents:prompt});for await(const part of stream)if(part.text)yield part.text;}
+  async generate(prompt:string){const r=await this.client.models.generateContent({model:process.env.GEMINI_MODEL||'gemini-3.6-flash',contents:prompt});return r.text||'';}
+  async *stream(prompt:string){const stream=await this.client.models.generateContentStream({model:process.env.GEMINI_MODEL||'gemini-3.6-flash',contents:prompt});for await(const part of stream)if(part.text)yield part.text;}
   async embed(text:string){const r=await this.client.models.embedContent({model:process.env.GEMINI_EMBED_MODEL||'gemini-embedding-001',contents:text,config:{outputDimensionality:768}});return r.embeddings?.[0]?.values || [];}
-  async transcribe(wav:string,mime:string){const r=await this.client.models.generateContent({model:process.env.GEMINI_STT_MODEL||'gemini-3.8-flash',contents:[{inlineData:{data:wav,mimeType:mime}},'Transcribe the speech verbatim. Output only transcript, preserving spoken language.']});return r.text||'';}
+  async transcribe(wav:string,mime:string){const r=await this.client.models.generateContent({model:process.env.GEMINI_STT_MODEL||'gemini-3.6-flash',contents:[{inlineData:{data:wav,mimeType:mime}},'Transcribe the speech verbatim. Output only transcript, preserving spoken language.']});return r.text||'';}
   async speak(text:string,voice:string){
     const response=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{
       method:'POST',
@@ -14,8 +14,9 @@ export class GeminiProvider implements AIProvider {
       body:JSON.stringify({model:process.env.GEMINI_TTS_MODEL||'gemini-3.8-flash-tts',input:text,response_format:{type:'audio'},generation_config:{speech_config:[{voice}]}})
     });
     if(!response.ok)throw Error('Speech provider returned HTTP '+response.status);
-    const audio=await response.json() as {output_audio?:{data?:string}};
-    return audio.output_audio?.data||'';
+    const audio=await response.json() as {steps?:Array<{content?:Array<{type:string;data?:string}>}>;output_audio?:{data?:string}};
+    const stepAudio=audio.steps?.[0]?.content?.find(c=>c.type==='audio')?.data;
+    return stepAudio||audio.output_audio?.data||'';
   }
 }
 export function provider():AIProvider {return new GeminiProvider()}

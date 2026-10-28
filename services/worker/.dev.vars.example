@@ -1,0 +1,32 @@
+# Local Development Secrets for Cloudflare Worker (Wrangler)
+# Copy this file to .dev.vars in services/worker/
+# NEVER commit .dev.vars to version control!
+
+# Master authentication token (minimum 32 random characters).
+# Enter this same token in the Desktop App Settings HUD.
+APP_TOKEN=jarvis-local-dev-token-32-chars-long-secure-key-12345
+
+# Google Gemini API Key (Required for chat, low-latency streaming TTS, embeddings)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Supabase Configuration (Required for memories, custom personas, and task scheduler)
+# SUPABASE_URL is already defined in wrangler.toml, but can be overridden here if using local Supabase.
+SUPABASE_URL=https://iqqszfuyyhagdovfzzqd.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+
+# Optional: AI Model Overrides
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_FALLBACK_MODEL=gemini-3.6-flash
+GEMINI_TTS_MODEL=gemini-3.8-flash-tts
+GEMINI_EMBED_MODEL=gemini-embedding-001
+GEMINI_STT_MODEL=gemini-3.8-flash
+
+# Optional: Gmail OAuth (Leave blank if not testing Gmail)
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# GOOGLE_REDIRECT_URI=http://127.0.0.1:8787/email/oauth/callback
+# OAUTH_ENCRYPTION_KEY=
+
+# Optional: fal.ai video generation (defaults to local FFmpeg if blank or 0 budget)
+# FAL_KEY=
+# FAL_DAILY_LIMIT_USD=0
