@@ -17,12 +17,45 @@ import MobileConsole from '../components/MobileConsole';
 import {isAndroid,nativeCall} from '../lib/android';
 const Core=dynamic(()=>import('../components/Core'),{ssr:false});
 type Line={role:'user'|'assistant';content:string};
+function extractSpeechChunks(input:string,flush=false):{chunks:string[];rest:string}{
+ let rest=input;const chunks:string[]=[];
+ while(rest.trim()){
+  const boundary=/[.!?؟。！？](?:["')\\]]*)\\s+/u.exec(rest);
+  if(boundary){
+   const end=boundary.index+boundary[0].length,chunk=rest.slice(0,end).trim();
+   if(chunk)chunks.push(chunk);
+   rest=rest.slice(end).trimStart();continue;
+  }
+  if(rest.length>220){
+   let cut=rest.lastIndexOf(' ',220);
+   if(cut<100)cut=rest.indexOf(' ',220);
+   if(cut<0)cut=Math.min(220,rest.length);
+   const chunk=rest.slice(0,cut).trim();
+   if(chunk)chunks.push(chunk);
+   rest=rest.slice(cut).trimStart();continue;
+  }
+  break;
+ }
+ if(flush){
+  while(rest.length>220){
+   let cut=rest.lastIndexOf(' ',220);
+   if(cut<100)cut=rest.indexOf(' ',220);
+   if(cut<0)cut=220;
+   const chunk=rest.slice(0,cut).trim();if(chunk)chunks.push(chunk);
+   rest=rest.slice(cut).trimStart();
+  }
+  if(rest.trim())chunks.push(rest.trim());
+  rest='';
+ }
+ return {chunks,rest};
+}
+
 declare global {interface Window {irfan?:WhatsAppNative & {platform:string;version:string;desktopDiagnostics?:()=>Promise<any>;listTools:()=>Promise<Array<{name:string;risk:string;description:string}>>;listPolicies?:()=>Promise<Array<{name:string;risk:string;minimum:string}>>;setPolicy?:(name:string,risk:string)=>Promise<any>;checkUpdates?:()=>Promise<any>;downloadUpdate?:()=>Promise<any>;installUpdate?:()=>Promise<any>;onUpdateStatus?:(fn:(update:any)=>void)=>()=>void;propose:(name:string,args:unknown)=>Promise<any>;decide:(id:string,approved:boolean)=>Promise<any>;videoPropose:(kind:string,plan?:unknown)=>Promise<any>;videoDecide:(id:string,approved:boolean)=>Promise<any>;openExternal:(url:string)=>Promise<void>;loadSettings?:()=>Promise<{status:string;apiUrl?:string;token?:string}>;saveSettings?:(apiUrl:string,token:string)=>Promise<{status:string}>;onVideoProgress?:(listener:(detail:any)=>void)=>(()=>void)}}}
 
 const DEFAULT_API=process.env.NEXT_PUBLIC_IRFAN_API_URL||'https://fahad-s-studio.notxfahad.workers.dev';
 export default function Home(){
  const [waDraft,setWaDraft]=useState<{nonce:number;recipient:string;body:string}|null>(null);const [toolName,setToolName]=useState('list_running_apps'),[toolArgs,setToolArgs]=useState('{}'),[toolList,setToolList]=useState<Array<{name:string;risk:string;description:string}>>([]),[pending,setPending]=useState<{id:string;tool:string;args:unknown}|null>(null),[toolResult,setToolResult]=useState(''); const [apiUrl,setApiUrl]=useState(DEFAULT_API); const [mobilePaired,setMobilePaired]=useState(false),[isMobileApp,setIsMobileApp]=useState(false);const [engine,setEngine]=useState<'local'|'fal'>('local'),[unreadIds,setUnreadIds]=useState<string[]>([]);const [tab,setTab]=useState<'console'|'settings'|'email'|'video'|'android'|'devices'|'whatsapp'|'personas'|'scheduler'>('console');const [metaVoices,setMetaVoices]=useState<{male?:string;female?:string}>({});const [messages,setMessages]=useState<Line[]>([]),[input,setInput]=useState(''),[persona,setPersona]=useState('calm'),[gender,setGender]=useState<'male'|'female'>('female'),[language,setLanguage]=useState('auto'),[low,setLow]=useState(false),[token,setToken]=useState(''),[busy,setBusy]=useState(false),[recording,setRecording]=useState(false),[speaking,setSpeaking]=useState(false),[memories,setMemories]=useState<Array<{id:string;fact:string;importance:number}>>([]),[fact,setFact]=useState(''),[error,setError]=useState('');
- const recorder=useRef<MediaRecorder|null>(null),chunks=useRef<Blob[]>([]),audioCtx=useRef<AudioContext|null>(null),analyser=useRef<AnalyserNode|null>(null),utterance=useRef<HTMLAudioElement|null>(null),speechFallback=useRef<SpeechSynthesisUtterance|null>(null),stop=useRef<AbortController|null>(null);
+ const recorder=useRef<MediaRecorder|null>(null),chunks=useRef<Blob[]>([]),audioCtx=useRef<AudioContext|null>(null),analyser=useRef<AnalyserNode|null>(null),utterance=useRef<HTMLAudioElement|null>(null),speechFallback=useRef<SpeechSynthesisUtterance|null>(null),speechController=useRef<AbortController|null>(null),speechQueue=useRef<string[]>([]),speechDraining=useRef(false),stop=useRef<AbortController|null>(null);
  const auth=()=>({Authorization:'Bearer '+token,'Content-Type':'application/json'});
  const request=async(route:string,init:RequestInit={})=>{
    if(isAndroid()){const verb=(init.method||'GET').toUpperCase();const body=typeof init.body==='string'&&init.body?JSON.parse(init.body):undefined;const result=await nativeCall('api',{route,verb,body});return result&&Array.isArray(result.items)?result.items:result}
@@ -30,8 +63,67 @@ export default function Home(){
    if(!r.ok)throw Error('API '+r.status+' '+await r.text());return r.json()
  };
  const reload=async()=>{try{setMemories(await request('/memories'));setError('')}catch(e){setError(String(e))}};
- async function play(text:string){if(!text||(!token&&!mobilePaired))return;if(isAndroid()){await nativeCall('speak',{text:text.slice(0,3000)});return}try{setSpeaking(true);const data=await request('/tts',{method:'POST',body:JSON.stringify({text,persona,gender,voiceMale:metaVoices.male,voiceFemale:metaVoices.female,language:language==='auto'?'en':language})});const bytes=Uint8Array.from(atob(data.pcm),c=>c.charCodeAt(0));const wav=new Uint8Array(44+bytes.length);const dv=new DataView(wav.buffer);const str=(n:number,s:string)=>{for(let i=0;i<s.length;i++)wav[n+i]=s.charCodeAt(i)};str(0,'RIFF');dv.setUint32(4,36+bytes.length,true);str(8,'WAVEfmt ');dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);dv.setUint32(24,24000,true);dv.setUint32(28,48000,true);dv.setUint16(32,2,true);dv.setUint16(34,16,true);str(36,'data');dv.setUint32(40,bytes.length,true);wav.set(bytes,44);const url=URL.createObjectURL(new Blob([wav],{type:'audio/wav'}));const sound=new Audio(url);utterance.current=sound;sound.onended=()=>{URL.revokeObjectURL(url);setSpeaking(false)};sound.onerror=()=>{URL.revokeObjectURL(url);setSpeaking(false);setError('Audio playback failed in this browser. Check the system output device.');};await sound.play();}catch(e){setSpeaking(false);try{if(typeof window!=='undefined'&&'speechSynthesis' in window&&typeof SpeechSynthesisUtterance!=='undefined'){window.speechSynthesis.cancel();const fallback=new SpeechSynthesisUtterance(text.slice(0,3000));fallback.lang=language==='ur'?'ur-PK':language==='hi'?'hi-IN':language==='auto'?'en-US':language;fallback.rate=persona==='energetic'?1.04:persona==='calm'?.94:1;const voices=window.speechSynthesis.getVoices();const locale=fallback.lang.toLowerCase();const voice=voices.find(v=>v.lang.toLowerCase().startsWith(locale)&&(gender==='male'?/male|david|mark|guy|daniel|james/i.test(v.name):/female|zira|susan|aria|jenny|samantha/i.test(v.name)));if(voice)fallback.voice=voice;fallback.onstart=()=>setSpeaking(true);fallback.onend=()=>setSpeaking(false);fallback.onerror=()=>setSpeaking(false);speechFallback.current=fallback;window.speechSynthesis.speak(fallback);setError('Cloud speech unavailable; using the device voice instead. '+String(e))}else setError(String(e))}catch(fallbackError){setError('Speech unavailable: '+String(e)+'; device voice failed: '+String(fallbackError))}}}
- function interrupt(){stop.current?.abort();utterance.current?.pause();utterance.current=null;if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();speechFallback.current=null;setSpeaking(false);setBusy(false)}
+ async function play(text:string){
+  if(!text||(!token&&!mobilePaired))return;
+  if(isAndroid()){await nativeCall('speak',{text:text.slice(0,3000)});return}
+  const controller=new AbortController();speechController.current=controller;
+  try{
+   setSpeaking(true);
+   const data=await request('/tts',{method:'POST',body:JSON.stringify({text:text.slice(0,2600),persona,gender,voiceMale:metaVoices.male,voiceFemale:metaVoices.female,language:language==='auto'?'en':language}),signal:controller.signal});
+   if(controller.signal.aborted)return;
+   const bytes=Uint8Array.from(atob(data.pcm),c=>c.charCodeAt(0));
+   const wav=new Uint8Array(44+bytes.length),dv=new DataView(wav.buffer);
+   const str=(n:number,value:string)=>{for(let i=0;i<value.length;i++)wav[n+i]=value.charCodeAt(i)};
+   str(0,'RIFF');dv.setUint32(4,36+bytes.length,true);str(8,'WAVEfmt ');dv.setUint32(16,16,true);
+   dv.setUint16(20,1,true);dv.setUint16(22,1,true);dv.setUint32(24,24000,true);dv.setUint32(28,48000,true);
+   dv.setUint16(32,2,true);dv.setUint16(34,16,true);str(36,'data');dv.setUint32(40,bytes.length,true);wav.set(bytes,44);
+   const url=URL.createObjectURL(new Blob([wav],{type:'audio/wav'})),sound=new Audio(url);utterance.current=sound;
+   await new Promise<void>((resolve,reject)=>{
+    let finished=false;
+    const finish=()=>{if(finished)return;finished=true;URL.revokeObjectURL(url);if(utterance.current===sound)utterance.current=null;resolve()};
+    sound.onended=finish;sound.onpause=()=>{if(controller.signal.aborted)finish()};
+    sound.onerror=()=>{if(finished)return;finished=true;URL.revokeObjectURL(url);if(utterance.current===sound)utterance.current=null;reject(Error('Audio playback failed.'))};
+    void sound.play().catch(reject);
+   });
+  }catch(e){
+   if(controller.signal.aborted)return;
+   try{
+    if(typeof window!=='undefined'&&'speechSynthesis' in window&&typeof SpeechSynthesisUtterance!=='undefined'){
+     window.speechSynthesis.cancel();
+     const fallback=new SpeechSynthesisUtterance(text.slice(0,2200));
+     fallback.lang=language==='ur'?'ur-PK':language==='hi'?'hi-IN':language==='auto'?'en-US':language;
+     fallback.rate=persona==='energetic'?1.04:persona==='calm'?.94:1;
+     const voices=window.speechSynthesis.getVoices(),locale=fallback.lang.toLowerCase();
+     const voice=voices.find(v=>v.lang.toLowerCase().startsWith(locale)&&(gender==='male'?/male|david|mark|guy|daniel|james/i.test(v.name):/female|zira|susan|aria|jenny|samantha/i.test(v.name)));
+     if(voice)fallback.voice=voice;
+     await new Promise<void>(resolve=>{
+      fallback.onstart=()=>setSpeaking(true);
+      fallback.onend=()=>resolve();
+      fallback.onerror=()=>resolve();
+      speechFallback.current=fallback;
+      window.speechSynthesis.speak(fallback);
+     });
+    }else setError(String(e));
+   }catch(fallbackError){setError('Speech unavailable: '+String(e)+'; device voice failed: '+String(fallbackError))}
+  }finally{
+   if(speechController.current===controller)speechController.current=null;
+   if(!controller.signal.aborted)setSpeaking(false);
+  }
+ }
+ function queueSpeech(text:string){
+  const clean=text.trim();if(!clean)return;
+  speechQueue.current.push(clean);
+  void drainSpeechQueue();
+ }
+ async function drainSpeechQueue(){
+  if(speechDraining.current)return;
+  speechDraining.current=true;
+  try{while(speechQueue.current.length){const next=speechQueue.current.shift();if(next)await play(next)}}finally{
+   speechDraining.current=false;
+   if(speechQueue.current.length)void drainSpeechQueue();
+  }
+ }
+ function interrupt(){stop.current?.abort();speechController.current?.abort();speechQueue.current=[];utterance.current?.pause();utterance.current=null;if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();speechFallback.current=null;setSpeaking(false);setBusy(false)}
  async function send(value=input){const message=value.trim();if(!message)return;if(!token&&!mobilePaired){setError('Jarvis is not connected to the cloud backend. Open Settings and enter a working backend access token. The Mac static UI preview is not a live AI service.');return}interrupt();setInput('');setError('');const history=messages.slice(-12);
  if(isAndroid()){
    const w=/^(?:send|write|compose)\s+(?:a\s+)?(?:whatsapp|wa)(?:\s+message)?\s+to\s+(\+?[0-9][0-9 ()-]{6,20})\s+(?:saying|that\s+says|message)\s+([\s\S]+)$/i.exec(message);
@@ -93,7 +185,38 @@ export default function Home(){
    }finally{setBusy(false)}
    return
  }
- setMessages([...history,{role:'user',content:message},{role:'assistant',content:''}]);setBusy(true);const controller=new AbortController();stop.current=controller;let replyText='';try{const res=await fetch(apiUrl.replace(/\/$/,'')+'/chat',{method:'POST',headers:auth(),body:JSON.stringify({message,persona,language:language==='auto'?'':language,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',history}),signal:controller.signal});if(!res.ok||!res.body)throw Error('Chat failed: '+res.status);const rd=res.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const {done,value}=await rd.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const blocks=buffer.split('\n\n');buffer=blocks.pop()||'';for(const block of blocks){const kind=block.match(/^event: (.*)$/m)?.[1],data=block.match(/^data: (.*)$/m)?.[1];if(!data)continue;const payload=JSON.parse(data);if(kind==='meta'){if(payload.persona)setPersona(payload.persona);if(payload.voiceMale||payload.voiceFemale)setMetaVoices({male:payload.voiceMale,female:payload.voiceFemale});}if(kind==='error')throw Error(payload.message);if(kind==='delta'){replyText+=payload.text;setMessages(old=>old.map((m,i)=>i===old.length-1?{...m,content:replyText}:m));}}}if(!controller.signal.aborted&&replyText)void play(replyText)}catch(e){if(!controller.signal.aborted)setError(String(e))}finally{setBusy(false)}}
+ setMessages([...history,{role:'user',content:message},{role:'assistant',content:''}]);
+ setBusy(true);const controller=new AbortController();stop.current=controller;let replyText='',speechBuffer='';
+ try{
+  const res=await fetch(apiUrl.replace(/\\/$/, '')+'/chat',{method:'POST',headers:auth(),body:JSON.stringify({message,persona,language:language==='auto'?'':language,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',history:history.slice(-8).map(m=>({...m,content:m.content.slice(0,1400)}))}),signal:controller.signal});
+  if(!res.ok||!res.body)throw Error('Chat failed: '+res.status);
+  const rd=res.body.getReader(),decoder=new TextDecoder();let buffer='';
+  const consume=(block:string)=>{
+   const kind=block.match(/^event: (.*)$/m)?.[1],data=block.match(/^data: (.*)$/m)?.[1];if(!data)return;
+   const payload=JSON.parse(data);
+   if(kind==='meta'){if(payload.persona)setPersona(payload.persona);if(payload.voiceMale||payload.voiceFemale)setMetaVoices({male:payload.voiceMale,female:payload.voiceFemale})}
+   if(kind==='error')throw Error(payload.message);
+   if(kind==='delta'){
+    replyText+=payload.text;
+    setMessages(old=>old.map((m,i)=>i===old.length-1?{...m,content:replyText}:m));
+    speechBuffer+=payload.text;
+    const ready=extractSpeechChunks(speechBuffer);speechBuffer=ready.rest;
+    for(const chunk of ready.chunks)queueSpeech(chunk);
+   }
+  };
+  while(true){
+   const {done,value}=await rd.read();if(done)break;
+   buffer+=decoder.decode(value,{stream:true});
+   const blocks=buffer.split('\\n\\n');buffer=blocks.pop()||'';
+   for(const block of blocks)consume(block);
+  }
+  if(buffer.trim())consume(buffer);
+  if(!controller.signal.aborted){
+   const tail=extractSpeechChunks(speechBuffer,true);
+   for(const chunk of tail.chunks)queueSpeech(chunk);
+  }
+ }catch(e){if(!controller.signal.aborted)setError(String(e))}
+ finally{setBusy(false)}
  async function startMic(){
   if(!token){setError('Connect Jarvis to a working backend and save its access token in Settings before using live microphone transcription. A static Mac preview cannot transcribe audio through Gemini.');return}
   let stream:MediaStream|null=null;let ctx:AudioContext|null=null;
