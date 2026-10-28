@@ -1,148 +1,231 @@
 'use client';
-import {useEffect,useRef,useState} from 'react';
-type SpeechLike={continuous:boolean;interimResults:boolean;lang:string;onresult:((e:any)=>void)|null;onend:(()=>void)|null;onerror:((e:any)=>void)|null;start:()=>void;stop:()=>void};
-
-function escapeRegex(s:string){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
-
-function buildMatcher(phrase:string){
- const clean=phrase.trim();
- if(!clean) return /\b(?:hey|hi|okay|ok)\s+jarvis\b[\s,.:;!?-]*(.*)$/i;
- const words=clean.split(/\s+/).map(escapeRegex).join('\\s+');
- return new RegExp('(?:\\b(?:hey|hi|okay|ok)\\s+)?\\b'+words+'\\b[\\s,.:;!?-]*(.*)$','i');
-}
+import {useEffect, useRef, useState} from 'react';
+import {OfflineWakeDetector, type WakeDetectorState} from '../lib/offline-wake-detector';
 
 export default function WakeWord({
- onCommand,
- onGreeting,
- language='en-US',
- currentPhrase='Hey Jarvis',
- onPhraseChange
-}:{
- onCommand:(command:string)=>void;
- onGreeting:()=>void;
- language?:string;
- currentPhrase?:string;
- onPhraseChange?:(phrase:string)=>void;
-}){
- const [active,setActive]=useState(false);
- const [problem,setProblem]=useState('');
- const [phrase,setPhrase]=useState(currentPhrase);
- const [showConfig,setShowConfig]=useState(false);
- const recognizer=useRef<SpeechLike|null>(null);
- const armed=useRef(false);
- const commandRef=useRef(onCommand);
- const greetRef=useRef(onGreeting);
- const phraseRef=useRef(phrase);
+  onCommand,
+  onCommandAudio,
+  onGreeting,
+  currentPhrase = 'Hey Jarvis',
+  onPhraseChange,
+  paused = false
+}: {
+  onCommand: (command: string) => void;
+  onCommandAudio?: (blob: Blob) => void;
+  onGreeting: (startCapture?: () => void) => void;
+  language?: string;
+  currentPhrase?: string;
+  onPhraseChange?: (phrase: string) => void;
+  paused?: boolean;
+}) {
+  const [state, setState] = useState<WakeDetectorState>('disabled');
+  const [problem, setProblem] = useState('');
+  const [phrase, setPhrase] = useState(currentPhrase);
+  const [sensitivity, setSensitivity] = useState<'high' | 'normal'>('high');
+  const [showConfig, setShowConfig] = useState(false);
 
- commandRef.current=onCommand;
- greetRef.current=onGreeting;
- phraseRef.current=phrase;
+  const detectorRef = useRef<OfflineWakeDetector | null>(null);
+  const commandRef = useRef(onCommand);
+  const commandAudioRef = useRef(onCommandAudio);
+  const greetRef = useRef(onGreeting);
 
- useEffect(()=>{
-  try{
-   const saved=localStorage.getItem('irfan_wake_phrase');
-   if(saved){setPhrase(saved);onPhraseChange?.(saved)}
-  }catch{}
- },[]);
+  commandRef.current = onCommand;
+  commandAudioRef.current = onCommandAudio;
+  greetRef.current = onGreeting;
 
- function updatePhrase(newPhrase:string){
-  const clean=newPhrase.slice(0,50);
-  setPhrase(clean);
-  try{localStorage.setItem('irfan_wake_phrase',clean)}catch{}
-  onPhraseChange?.(clean);
- }
+  // Auto-start listener on mount for zero-click "always listening" experience
+  useEffect(() => {
+    let savedPhrase = currentPhrase;
+    try {
+      const saved = localStorage.getItem('irfan_wake_phrase');
+      if (saved) {
+        savedPhrase = saved;
+        setPhrase(saved);
+        onPhraseChange?.(saved);
+      }
+    } catch {}
 
- function stop(){
-  armed.current=false;
-  recognizer.current?.stop();
-  recognizer.current=null;
-  setActive(false);
- }
+    const detector = new OfflineWakeDetector({
+      wakePhrase: savedPhrase,
+      sensitivity: 'high',
+      onWakeDetected: (_detectedPhrase, startCapture) => {
+        greetRef.current(startCapture);
+      },
+      onCommandCaptured: (audioBlob) => {
+        if (commandAudioRef.current) {
+          commandAudioRef.current(audioBlob);
+        }
+      },
+      onStateChange: (s) => setState(s),
+      onError: (err) => {
+        setProblem(err);
+        setState('unavailable');
+      }
+    });
+    detectorRef.current = detector;
 
- function start(){
-  if(armed.current){stop();return}
-  const ctor=(window as any).SpeechRecognition||(window as any).webkitSpeechRecognition;
-  if(!ctor){
-   setProblem('Wake-word recognition is unavailable on this Windows/Chromium setup. Use Mic (push-to-talk).');
-   return;
-  }
-  const rec:SpeechLike=new ctor();
-  rec.continuous=true;
-  rec.interimResults=false;
-  rec.lang=language;
-  armed.current=true;
-  setProblem('');
-  setActive(true);
-  recognizer.current=rec;
+    // Start listening automatically
+    void detector.start();
 
-  rec.onresult=(event:any)=>{
-   const matcher=buildMatcher(phraseRef.current);
-   for(let i=event.resultIndex;i<event.results.length;i++){
-    if(!event.results[i].isFinal)continue;
-    const heard=String(event.results[i][0]?.transcript||'').trim();
-    const match=heard.match(matcher);
-    if(!match)continue;
-    const command=match[1]?.trim();
-    if(command){stop();commandRef.current(command)}
-    else {greetRef.current()}
-   }
-  };
+    return () => {
+      detector.stop();
+      detectorRef.current = null;
+    };
+  }, []);
 
-  rec.onerror=(event:any)=>{
-   if(['not-allowed','service-not-allowed','audio-capture','network','language-not-supported'].includes(event.error)){
-    armed.current=false;
-    setActive(false);
-    setProblem('Wake-word listener unavailable: '+event.error+'. Use push-to-talk.');
-   }
-  };
-
-  rec.onend=()=>{
-   if(armed.current&&recognizer.current===rec){
-    try{rec.start()}catch{
-     armed.current=false;
-     setActive(false);
-     setProblem('Wake word stopped; please enable it again.');
+  // Suspend/resume detector based on speech playback (Echo Prevention)
+  useEffect(() => {
+    if (!detectorRef.current) return;
+    if (paused) {
+      detectorRef.current.suspend();
+    } else {
+      detectorRef.current.resumeWithGrace(1500);
     }
-   }
-  };
+  }, [paused]);
 
-  try{rec.start()}catch(e){
-   armed.current=false;
-   recognizer.current=null;
-   setActive(false);
-   setProblem('Could not start listener: '+String(e));
+  function updatePhrase(newPhrase: string) {
+    const clean = newPhrase.slice(0, 50);
+    setPhrase(clean);
+    try {
+      localStorage.setItem('irfan_wake_phrase', clean);
+    } catch {}
+    detectorRef.current?.setWakePhrase(clean);
+    onPhraseChange?.(clean);
   }
- }
 
- useEffect(()=>()=>{
-  armed.current=false;
-  recognizer.current?.stop();
-  recognizer.current=null;
- },[]);
+  function toggleStart() {
+    if (detectorRef.current && (state === 'listening' || state === 'capturing' || state === 'suspended')) {
+      detectorRef.current.stop();
+      detectorRef.current = null;
+      setState('disabled');
+    } else {
+      setProblem('');
+      const detector = new OfflineWakeDetector({
+        wakePhrase: phrase,
+        sensitivity,
+        onWakeDetected: (_detectedPhrase) => {
+          greetRef.current();
+        },
+        onCommandCaptured: (audioBlob) => {
+          if (commandAudioRef.current) {
+            commandAudioRef.current(audioBlob);
+          }
+        },
+        onStateChange: (s) => setState(s),
+        onError: (err) => {
+          setProblem(err);
+          setState('unavailable');
+        }
+      });
+      detectorRef.current = detector;
+      void detector.start();
+    }
+  }
 
- return <div className="space-y-1">
-  <button className="btn w-full" type="button" aria-pressed={active} onClick={start}>
-   {active?'Disable wake word':'Enable “'+(phrase||'Hey Jarvis')+'”'}
-  </button>
-  <div className="flex justify-between items-center text-xs">
-   <span className="text-cyan-600">
-    {active?'Listening for “'+phrase+'” (microphone active)':'Off by default; you control microphone access'}
-   </span>
-   <button type="button" className="text-cyan-400 underline hover:text-cyan-200 ml-1" onClick={()=>setShowConfig(!showConfig)}>
-    {showConfig?'Done':'Change'}
-   </button>
-  </div>
-  {showConfig&&<div className="p-2 border border-cyan-800 rounded bg-cyan-950/40 space-y-1">
-   <label className="text-[11px] text-cyan-300 block">Wake phrase / invocation:</label>
-   <input className="input w-full text-xs py-1" value={phrase} onChange={e=>updatePhrase(e.target.value)} placeholder="e.g. Hey Jarvis, Computer, Assistant"/>
-   <div className="flex gap-1 text-[10px]">
-    {['Hey Jarvis','Jarvis','Computer','Assistant'].map(preset=>
-     <button key={preset} type="button" className="px-1.5 py-0.5 rounded bg-cyan-900/60 hover:bg-cyan-800 text-cyan-300" onClick={()=>updatePhrase(preset)}>
-      {preset}
-     </button>
-    )}
-   </div>
-  </div>}
-  {problem&&<p role="status" className="text-xs text-amber-300">{problem}</p>}
- </div>
+  return (
+    <div className="space-y-2">
+      <div
+        className={`p-2.5 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
+          state === 'listening'
+            ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+            : state === 'capturing'
+            ? 'bg-orange-950/40 border-orange-500 text-orange-200 animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+            : state === 'suspended'
+            ? 'bg-cyan-950/20 border-cyan-800 text-cyan-400'
+            : 'bg-slate-900/40 border-slate-700 text-slate-400'
+        }`}
+        onClick={toggleStart}
+        title="Click to toggle always-listening mode"
+      >
+        <div className="flex items-center gap-2">
+          {state === 'listening' && <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />}
+          {state === 'capturing' && <span className="w-2.5 h-2.5 rounded-full bg-orange-400 animate-pulse" />}
+          {state === 'suspended' && <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" />}
+          {state === 'disabled' && <span className="w-2.5 h-2.5 rounded-full bg-slate-600" />}
+          <div className="text-left">
+            <div className="text-xs font-semibold tracking-wide">
+              {state === 'listening'
+                ? `ALWAYS LISTENING: “${phrase.toUpperCase()}”`
+                : state === 'capturing'
+                ? 'CAPTURING VOICE DIRECTIVE...'
+                : state === 'suspended'
+                ? 'ECHO SHIELD (JARVIS SPEAKING)'
+                : 'SENSOR MUTED (CLICK TO ARM)'}
+            </div>
+            <div className="text-[10px] opacity-75">
+              {state === 'listening'
+                ? 'Speak anytime • Window auto-maximizes'
+                : state === 'capturing'
+                ? 'Listening to your command speech'
+                : 'Zero remote audio • 100% on-device'}
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-700 text-cyan-300"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowConfig(!showConfig);
+          }}
+        >
+          {showConfig ? 'Close' : 'Config'}
+        </button>
+      </div>
+
+      {showConfig && (
+        <div className="p-3 border border-cyan-800/80 rounded-lg bg-cyan-950/80 space-y-2 text-xs">
+          <div className="flex justify-between items-center">
+            <span className="text-cyan-300 font-semibold">Wake-Word Setup</span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                className={`px-1.5 py-0.5 rounded text-[10px] ${sensitivity === 'high' ? 'bg-cyan-500 text-black font-bold' : 'bg-cyan-950 text-cyan-300'}`}
+                onClick={() => {
+                  setSensitivity('high');
+                  detectorRef.current?.setSensitivity('high');
+                }}
+              >
+                High Sens.
+              </button>
+              <button
+                type="button"
+                className={`px-1.5 py-0.5 rounded text-[10px] ${sensitivity === 'normal' ? 'bg-cyan-500 text-black font-bold' : 'bg-cyan-950 text-cyan-300'}`}
+                onClick={() => {
+                  setSensitivity('normal');
+                  detectorRef.current?.setSensitivity('normal');
+                }}
+              >
+                Normal
+              </button>
+            </div>
+          </div>
+          <input
+            className="input w-full text-xs py-1"
+            value={phrase}
+            onChange={(e) => updatePhrase(e.target.value)}
+            placeholder="e.g. Hey Jarvis, Jarvis, Computer"
+          />
+          <div className="flex flex-wrap gap-1 text-[10px]">
+            {['Hey Jarvis', 'Jarvis', 'Computer', 'Assistant'].map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                className="px-2 py-0.5 rounded bg-cyan-900 hover:bg-cyan-800 text-cyan-200 border border-cyan-700/50"
+                onClick={() => updatePhrase(preset)}
+              >
+                {preset}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {problem && (
+        <p role="status" className="text-xs text-amber-300 bg-amber-950/50 p-2 rounded border border-amber-800">
+          {problem}
+        </p>
+      )}
+    </div>
+  );
 }

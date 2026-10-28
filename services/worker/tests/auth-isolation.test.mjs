@@ -84,4 +84,14 @@ test('valid owner Bearer token is accepted and does not leak token back in heade
   const text = await res.text();
   assert.equal(text.includes('test-secret-token-min-32-chars-long-abc-xyz'), false);
   assert.equal(res.headers.get('authorization'), null);
+
+  // Regression check: verify http://localhost:3001 and http://127.0.0.1:3001 are permitted origins
+  const port3001Res = await worker.fetch(new Request('https://worker.test/personas', {
+    headers: {
+      'authorization': 'Bearer test-secret-token-min-32-chars-long-abc-xyz',
+      'origin': 'http://localhost:3001'
+    }
+  }), env);
+  assert.equal(port3001Res.status, 200);
+  assert.equal(port3001Res.headers.get('access-control-allow-origin'), 'http://localhost:3001');
 });
