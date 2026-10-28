@@ -2,7 +2,7 @@ import {authorizeDevice,handleDeviceRoute} from './devices.js';
 import {handleEmail,gmailCallback} from './email.js';
 import {handleVideo} from './video.js';
 const json=(data,status=200,origin='')=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...(origin?{'access-control-allow-origin':origin,'vary':'origin'}:{})}});
-const allowed=(origin)=>!origin||origin==='irfan://studio'||origin==='http://localhost:3000'||origin==='http://127.0.0.1:3000'||origin==='http://localhost:3001'||origin==='http://127.0.0.1:3001';
+const allowed=(origin)=>!origin||origin==='irfan://studio'||origin==='http://localhost:3000'||origin==='http://127.0.0.1:3000'||origin==='http://localhost:3001'||origin==='http://127.0.0.1:3001'||origin==='https://irfan-studio-preview.vercel.app'||origin==='https://irfan-studio-preview-git-clien-32536e-fahad-aslam8743s-projects.vercel.app';
 function safeProviderMessage(value){return String(value||'').replace(/AIza[0-9A-Za-z_-]{20,}/g,'[redacted]').replace(/[\r\n\t]+/g,' ').replace(/\s{2,}/g,' ').trim().slice(0,180)}
 async function providerHttpError(provider,response){
  let status='',message='';
@@ -369,7 +369,7 @@ if(url.pathname==='/chat'&&request.method==='POST'){
  const personaId=personaSwitch||b.persona||'jarvis';
  const persona=await resolvePersona(env,personaId);
 
- const fastPathText=detectFastPathReply(b.message,persona.id);
+ const fastPathText=detectFastPathReply(b.message,persona.id)||quickChatReply(b.message,b.timezone,b.language);
  if(fastPathText){
   logStage('fast_path_matched');
   const encoder=new TextEncoder();
