@@ -192,7 +192,7 @@ try{
    const persona=builtinPersonas[personaKey]||builtinPersonas.jarvis;
    const encoder=new TextEncoder();
    const stream=new ReadableStream({start(controller){
-    const send=(event,payload)=>controller.enqueue(encoder.encode('event: '+event+'\\ndata: '+JSON.stringify(payload)+'\\n\\n'));
+    const send=(event,payload)=>controller.enqueue(encoder.encode('event: '+event+'\ndata: '+JSON.stringify(payload)+'\n\n'));
     send('meta',{persona:personaKey,voiceMale:persona.voiceMale,voiceFemale:persona.voiceFemale});
     send('delta',{text:reply});
     send('done',{text:reply});
