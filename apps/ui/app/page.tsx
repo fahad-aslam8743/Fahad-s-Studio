@@ -107,7 +107,7 @@ export default function Home(){
    }catch(fallbackError){setError('Speech unavailable: '+String(e)+'; device voice failed: '+String(fallbackError))}
   }finally{
    if(speechController.current===controller)speechController.current=null;
-   if(!controller.signal.aborted)setSpeaking(false);
+   if(!controller.signal.aborted&&!speechDraining.current)setSpeaking(false);
   }
  }
  function queueSpeech(text:string){
@@ -117,10 +117,11 @@ export default function Home(){
  }
  async function drainSpeechQueue(){
   if(speechDraining.current)return;
-  speechDraining.current=true;
+  speechDraining.current=true;setSpeaking(true);
   try{while(speechQueue.current.length){const next=speechQueue.current.shift();if(next)await play(next)}}finally{
    speechDraining.current=false;
    if(speechQueue.current.length)void drainSpeechQueue();
+   else setSpeaking(false);
   }
  }
  function interrupt(){stop.current?.abort();speechController.current?.abort();speechQueue.current=[];utterance.current?.pause();utterance.current=null;if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();speechFallback.current=null;setSpeaking(false);setBusy(false)}
