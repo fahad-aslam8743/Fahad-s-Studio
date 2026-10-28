@@ -19,6 +19,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Enable pnpm
+        run: corepack enable
+        working-directory: .
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: .
       - name: Deploy Cloudflare Worker
         run: npx --yes wrangler@4 deploy
         env:
