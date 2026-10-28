@@ -672,7 +672,7 @@ export default function Home() {
     if (isAndroid()) {
       setBusy(true);
       try {
-        const r = await request('/chat', {method: 'POST', body: JSON.stringify({message, persona, language: language === 'auto' ? '' : language, history})});
+        const r = await request('/chat', {method: 'POST', body: JSON.stringify({message, persona, language: language === 'auto' ? '' : language, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', history})});
         const answer = String(r.text || 'No response from Jarvis');
         setMessages(prev => [...prev, {role: 'assistant', content: answer, time: timeStr}]);
         await play(answer);
@@ -708,7 +708,7 @@ export default function Home() {
       const res = await fetch(apiUrl.replace(/\/$/, '') + '/chat', {
         method: 'POST',
         headers: auth(),
-        body: JSON.stringify({message, persona, language: language === 'auto' ? '' : language, history}),
+        body: JSON.stringify({message, persona, language: language === 'auto' ? '' : language, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', history}),
         signal: controller.signal
       });
 
