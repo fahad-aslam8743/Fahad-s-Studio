@@ -287,11 +287,23 @@ if(url.pathname==='/chat'&&request.method==='POST'){
 if(url.pathname==='/tts'&&request.method==='POST'){
  const b=await request.json();if(typeof b.text!=='string'||!b.text.trim()||b.text.length>2800)return json({error:'Invalid TTS text'},400,origin);
  const preferred=b.gender==='male'?(b.voiceMale||'Puck'):(b.voiceFemale||'Kore'); const voice=b.voice||preferred;
- const speech=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY,'Api-Revision':'2026-05-20'},body:JSON.stringify({model:env.GEMINI_TTS_MODEL||'gemini-3.8-flash-tts',input:b.text,response_format:{type:'audio'},generation_config:{speech_config:[{voice}]}})});
- if(!speech.ok)return json({error:'Speech provider returned HTTP '+speech.status},502,origin);
+ const style=b.persona==='energetic'?'warm, energetic and conversational':b.persona==='romantic'?'warm and gentle':b.persona==='calm'?'calm, clear and measured':'natural, friendly and clear';
+ let speech;
+ try{
+  speech=await fetch('https://generativelanguage.googleapis.com/v1beta/interactions',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},body:JSON.stringify({
+   model:env.GEMINI_TTS_MODEL||'gemini-3.8-flash-tts',
+   input:[{type:'user_input',content:[{type:'text',text:b.text,annotations:[{type:'speech_metadata',style}]}]}],
+   response_format:{type:'audio',mime_type:'audio/l16',sample_rate:24000},
+   generation_config:{speech_config:[{voice}]}
+  }),signal:AbortSignal.timeout(45000)});
+ }catch(error){return json({error:providerRequestError('Speech provider',error,45000).message},502,origin);}
+ if(!speech.ok)return json({error:await providerHttpError('Speech provider',speech)},502,origin);
  const audio=await speech.json();
- const pcm=audio.output_audio?.data;
- if(typeof pcm!=='string'||!pcm)return json({error:'Speech model returned no audio'},502,origin);
+ // The raw REST Interactions API returns audio in steps[].content[].data.
+ // output_audio.data is the SDK convenience property, so accept both shapes.
+ const stepAudio=(audio.steps||[]).filter(step=>step?.type==='model_output').flatMap(step=>Array.isArray(step.content)?step.content:[]).filter(part=>part?.type==='audio'&&typeof part.data==='string'&&part.data.length>0);
+ const pcm=audio.output_audio?.data||stepAudio[stepAudio.length-1]?.data;
+ if(typeof pcm!=='string'||!pcm)return json({error:'Speech provider returned no audio payload',outputTypes:(audio.steps||[]).flatMap(step=>Array.isArray(step.content)?step.content.map(part=>part?.type).filter(Boolean):[]).slice(0,8)},502,origin);
  return json({pcm,sampleRate:24000,channels:1},200,origin);
 }
 if(url.pathname==='/stt'&&request.method==='POST'){const b=await request.json();const r=await gemini(env,env.GEMINI_STT_MODEL||'gemini-3.8-flash',{contents:[{parts:[{inline_data:{mime_type:b.mime,data:b.audio}},{text:'Transcribe verbatim, preserve the spoken language. Output only transcript.'}]}]});return json({text:textOf(r)},200,origin);}
