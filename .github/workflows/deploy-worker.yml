@@ -1,7 +1,7 @@
 name: Deploy Irfan's Studio API
 on:
   push:
-    branches: [phase-1-foundation, main]
+    branches: [phase-1-foundation, main, client-handoff-windows-android]
     paths:
       - "services/worker/**"
       - ".github/workflows/deploy-worker.yml"
