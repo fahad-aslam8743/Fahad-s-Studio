@@ -121,6 +121,39 @@ async function embed(env,text,timeoutMs=10000){
  const d=await r.json();return d.embedding?.values||[];
 }
 async function memoryLookup(env,text){if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return [];try{const v=await embed(env,text,1250);const r=await fetch(env.SUPABASE_URL+'/rest/v1/rpc/match_irfan_memories',{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json'},body:JSON.stringify({query_embedding:'['+v.join(',')+']',match_count:5}),signal:AbortSignal.timeout(1250)});return r.ok?(await r.json()).map(x=>x.fact):[];}catch{return [];}}
+function quickChatReply(message,timezone,language){
+ let m=String(message||'').trim().replace(/^(?:hey\s+)?jarvis[,:\s-]*/i,'').replace(/[.!?؟。]+$/u,'').trim().toLowerCase();
+ const lang=String(language||'').toLowerCase();
+ const isUrdu=lang==='ur';
+ const isHindi=lang==='hi';
+ if(/^(?:hi|hello|hey|yo|good morning|good afternoon|good evening|salam|salaam|assalamu alaikum|assalam alaikum)$/.test(m)){
+  if(isUrdu)return 'جی، میں حاضر ہوں۔ میں آپ کی کیا مدد کر سکتا ہوں؟';
+  if(isHindi)return 'जी, मैं मौजूद हूँ। मैं आपकी क्या मदद कर सकता हूँ?';
+  return 'Hey! I am here and ready. What can I help you with?';
+ }
+ if(/^(?:how are you|how're you|how are things|are you there|are you online|are you connected|can you hear me|ping|test connection|test)$/.test(m)){
+  if(isUrdu)return 'میں آن لائن ہوں اور مدد کے لیے تیار ہوں۔ بتائیں، کیا کرنا ہے؟';
+  if(isHindi)return 'मैं ऑनलाइन हूँ और मदद के लिए तैयार हूँ। बताइए, क्या करना है?';
+  return 'I am online and ready to help. What should we tackle?';
+ }
+ if(/^(?:thanks|thank you|thanks jarvis|thank you jarvis|thx|appreciate it)$/.test(m)){
+  if(isUrdu)return 'خوشی ہوئی۔ جب بھی ضرورت ہو، میں حاضر ہوں۔';
+  if(isHindi)return 'खुशी हुई। जब भी ज़रूरत हो, मैं मौजूद हूँ।';
+  return 'You are welcome. Ready when you are.';
+ }
+ if(/^(?:who are you|what are you|introduce yourself|what can you do)$/.test(m))return 'I am JARVIS, your personal assistant for conversation, planning, and supported device workflows.';
+ if(/^(?:what(?: is|'s) the time|what time is it|what(?: is|'s) the current time|current time|time now|tell me the time)$/.test(m)){
+  const zone=typeof timezone==='string'&&timezone.length<=80?timezone:'UTC';
+  try{
+   const time=new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',timeZone:zone,timeZoneName:'short'}).format(new Date());
+   return 'The current time is '+time+'.';
+  }catch{
+   const time=new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit',timeZone:'UTC',timeZoneName:'short'}).format(new Date());
+   return 'The current time is '+time+'.';
+  }
+ }
+ return '';
+}
 export default {async scheduled(_event,env){
  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return;
  const now=new Date().toISOString();
@@ -149,7 +182,27 @@ if(!owner&&!paired&&!isRedeem)return json({error:'Unauthorized'},401,origin);
 if(paired&&!/^\/(?:chat|tts|stt|personas(?:\/|$)|memories(?:\/|$)|tasks(?:\/|$)|email\/|video\/|youtube\/|devices(?:\/|$)|relay\/)/.test(url.pathname))return json({error:'Mobile session cannot access this endpoint'},403,origin);
 if(paired&&url.pathname.startsWith('/devices/pair'))return json({error:'Only the desktop owner can pair more devices'},403,origin);
 try{
- const aiRoute=/^\/(?:chat|tts|stt|tools\/plan|video\/(?:director|edit-plan)|email\/unread-summary)$/.test(url.pathname);
+ if(url.pathname==='/chat'&&request.method==='POST'){
+ let quickBody=null;
+ try{quickBody=await request.clone().json()}catch{}
+ if(quickBody&&typeof quickBody.message==='string'&&quickBody.message.length<=200){
+  const reply=quickChatReply(quickBody.message,quickBody.timezone,quickBody.language);
+  if(reply){
+   const personaKey=String(quickBody.persona||'jarvis').toLowerCase();
+   const persona=builtinPersonas[personaKey]||builtinPersonas.jarvis;
+   const encoder=new TextEncoder();
+   const stream=new ReadableStream({start(controller){
+    const send=(event,payload)=>controller.enqueue(encoder.encode('event: '+event+'\\ndata: '+JSON.stringify(payload)+'\\n\\n'));
+    send('meta',{persona:personaKey,voiceMale:persona.voiceMale,voiceFemale:persona.voiceFemale});
+    send('delta',{text:reply});
+    send('done',{text:reply});
+    controller.close();
+   }});
+   return new Response(stream,{status:200,headers:{...cors,'content-type':'text/event-stream; charset=utf-8','cache-control':'no-cache, no-transform','x-content-type-options':'nosniff'}});
+  }
+ }
+}
+const aiRoute=/^\/(?:chat|tts|stt|tools\/plan|video\/(?:director|edit-plan)|email\/unread-summary)$/.test(url.pathname);
  if(aiRoute&&!(await verifyDailyAiBudget(env,'ai:'+String(paired?.id||'owner'))))return json({error:'Daily AI request limit reached. Please try again tomorrow.'},429,origin);
  const deviceResult=await handleDeviceRoute(request,env,url,owner,paired);
  if(deviceResult){const h=new Headers(deviceResult.headers);if(origin)h.set('access-control-allow-origin',origin);return new Response(deviceResult.body,{status:deviceResult.status,headers:h})}
@@ -257,8 +310,11 @@ if(url.pathname==='/chat'&&request.method==='POST'){
  const persona=await resolvePersona(env,personaId);
  const lang=typeof b.language==='string'&&b.language.length<=10?b.language:'';
  const langName=langHint[lang]||'';
- const summaries=await recentSummaries(env,4);
- const memories=await memoryLookup(env,b.message);
+ const needsLongContext=b.message.trim().length>=60||/\b(name|remember|previous|earlier|last time|our project|what did i|my preference|we discussed)\b/i.test(b.message);
+ const [summaries,memories]=await Promise.all([
+  needsLongContext?recentSummaries(env,4):Promise.resolve([]),
+  needsLongContext?memoryLookup(env,b.message):Promise.resolve([])
+ ]);
  const isTime=/\b(current time|what(?:'s| is) the time|time now)\b/i.test(b.message);
  let tool='';
  if(isTime){const t={iso:new Date().toISOString(),timezone:'UTC'};tool=JSON.stringify(t);await db(env,'tool_audit','POST','',{tool:'get_current_time',risk:'SAFE',arguments:{},result:t,outcome:'success'})}
