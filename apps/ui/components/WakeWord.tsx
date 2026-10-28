@@ -13,15 +13,15 @@ type SpeechLike={
  stop:()=>void;
 };
 
-function escapeRegex(s:string){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+function escapeRegex(s:string){return s.replace(/[.*+?^$()|[\]{}]/g, '\\$&')}
 
 function buildMatcher(phrase:string){
  const clean=phrase.trim();
- if(!clean)return /\\b(?:(?:hey|hi|okay|ok)\\s+)?jarvis\\b[\\s,.:;!?-]*(.*)$/i;
- const phraseWords=clean.split(/\\s+/);
+ if(!clean)return /\b(?:(?:hey|hi|okay|ok)\s+)?jarvis\b[\s,.:;!?-]*(.*)$/i;
+ const phraseWords=clean.split(/\s+/);
  if(/^(hey|hi|okay|ok)$/i.test(phraseWords[0])&&phraseWords.length>1)phraseWords.shift();
- const core=phraseWords.map(escapeRegex).join('\\\\s+');
- return new RegExp('(?:\\\\b(?:hey|hi|okay|ok)\\\\s+)?\\\\b'+core+'\\\\b[\\\\s,.:;!?-]*(.*)$','i');
+ const core=phraseWords.map(escapeRegex).join('\\s+');
+ return new RegExp('(?:\\b(?:hey|hi|okay|ok)\\s+)?\\b'+core+'\\b[\\s,.:;!?-]*(.*)$','i');
 }
 
 export default function WakeWord({
@@ -108,9 +108,10 @@ export default function WakeWord({
    return;
   }
   let rec:SpeechLike;
-  try{rec=new ctor()}catch(e){
+  try{rec=new ctor()}catch{
+   const wait=restartDelay.current;
    restartDelay.current=Math.min(5000,Math.ceil(restartDelay.current*1.7));
-   scheduleRestart(restartDelay.current);
+   scheduleRestart(wait);
    setProblem('Could not initialize recognition; retrying.');
    return;
   }
@@ -134,8 +135,12 @@ export default function WakeWord({
     lastTrigger.current=now;
     const command=match[1]?.trim();
     haltRecognition();
-    if(command)void Promise.resolve(commandRef.current(command)).catch(e=>setProblem('Command failed: '+String(e).slice(0,120)));
-    else greetRef.current();
+    if(command){
+     void Promise.resolve(commandRef.current(command)).catch(e=>setProblem('Command failed: '+String(e).slice(0,120))).finally(()=>scheduleRestart(650));
+    }else{
+     greetRef.current();
+     scheduleRestart(900);
+    }
     return;
    }
   };
@@ -144,8 +149,10 @@ export default function WakeWord({
    if(['not-allowed','service-not-allowed','audio-capture','language-not-supported'].includes(reason)){
     armed.current=false;cancelRestart();haltRecognition();setActive(false);
     setProblem('Wake-word listener needs microphone permission or a supported language: '+reason+'. Use Mic (push-to-talk) meanwhile.');
-   }else if(reason==='network'||reason==='no-speech'){
-    setProblem(reason==='network'?'Wake-word service disconnected; reconnecting…':'');
+   }else if(reason==='network'){
+    setProblem('Wake-word service disconnected; reconnecting…');
+   }else if(reason==='no-speech'){
+    setProblem('');
    }
   };
   rec.onend=()=>{
