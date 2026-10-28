@@ -217,6 +217,7 @@ export default function Home(){
   }
  }catch(e){if(!controller.signal.aborted)setError(String(e))}
  finally{setBusy(false)}
+ }
  async function startMic(){
   if(!token){setError('Connect Jarvis to a working backend and save its access token in Settings before using live microphone transcription. A static Mac preview cannot transcribe audio through Gemini.');return}
   let stream:MediaStream|null=null;let ctx:AudioContext|null=null;
