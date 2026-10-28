@@ -20,7 +20,7 @@ type Line={role:'user'|'assistant';content:string};
 function extractSpeechChunks(input:string,flush=false):{chunks:string[];rest:string}{
  let rest=input;const chunks:string[]=[];
  while(rest.trim()){
-  const boundary=/[.!?؟。！？](?:["')\\]]*)\\s+/u.exec(rest);
+  const boundary=/[.!?؟。！？]\s+/u.exec(rest);
   if(boundary){
    const end=boundary.index+boundary[0].length,chunk=rest.slice(0,end).trim();
    if(chunk)chunks.push(chunk);
@@ -188,7 +188,7 @@ export default function Home(){
  setMessages([...history,{role:'user',content:message},{role:'assistant',content:''}]);
  setBusy(true);const controller=new AbortController();stop.current=controller;let replyText='',speechBuffer='';
  try{
-  const res=await fetch(apiUrl.replace(/\\/$/, '')+'/chat',{method:'POST',headers:auth(),body:JSON.stringify({message,persona,language:language==='auto'?'':language,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',history:history.slice(-8).map(m=>({...m,content:m.content.slice(0,1400)}))}),signal:controller.signal});
+  const baseUrl=apiUrl.endsWith('/')?apiUrl.slice(0,-1):apiUrl;const res=await fetch(baseUrl+'/chat',{method:'POST',headers:auth(),body:JSON.stringify({message,persona,language:language==='auto'?'':language,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC',history:history.slice(-8).map(m=>({...m,content:m.content.slice(0,1400)}))}),signal:controller.signal});
   if(!res.ok||!res.body)throw Error('Chat failed: '+res.status);
   const rd=res.body.getReader(),decoder=new TextDecoder();let buffer='';
   const consume=(block:string)=>{
@@ -207,7 +207,7 @@ export default function Home(){
   while(true){
    const {done,value}=await rd.read();if(done)break;
    buffer+=decoder.decode(value,{stream:true});
-   const blocks=buffer.split('\\n\\n');buffer=blocks.pop()||'';
+   const blocks=buffer.split('\n\n');buffer=blocks.pop()||'';
    for(const block of blocks)consume(block);
   }
   if(buffer.trim())consume(buffer);
