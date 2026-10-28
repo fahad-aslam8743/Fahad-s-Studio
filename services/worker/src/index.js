@@ -124,7 +124,7 @@ async function recentSummaries(env,limit=5){
 }
 const langHint={en:'English',ur:'Urdu',hi:'Hindi',ar:'Arabic',es:'Spanish',fr:'French',de:'German',zh:'Chinese',ja:'Japanese',ko:'Korean',pt:'Portuguese',tr:'Turkish',ru:'Russian'};
 function textOf(r){return (r.candidates||[]).flatMap(c=>(c.content?.parts||[]).map(p=>p.text||'')).join('');}
-export async function* streamGemini(env,model,body,timeoutMs=10000,stageLogger=null){
+export async function* streamGemini(env,model,body,timeoutMs=120000,stageLogger=null){
  const response=await geminiResponse(env,model,'streamGenerateContent?alt=sse',body,timeoutMs,'Gemini streaming provider',stageLogger);
  if(!response.body)throw Error('Gemini streaming provider returned no response body (HTTP '+response.status+')');
  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
