@@ -1,14 +1,27 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
-type SpeechLike={continuous:boolean;interimResults:boolean;lang:string;onresult:((e:any)=>void)|null;onend:(()=>void)|null;onerror:((e:any)=>void)|null;start:()=>void;stop:()=>void};
+
+type SpeechLike={
+ continuous:boolean;
+ interimResults:boolean;
+ lang:string;
+ onresult:((e:any)=>void)|null;
+ onstart:(()=>void)|null;
+ onend:(()=>void)|null;
+ onerror:((e:any)=>void)|null;
+ start:()=>void;
+ stop:()=>void;
+};
 
 function escapeRegex(s:string){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
 
 function buildMatcher(phrase:string){
  const clean=phrase.trim();
- if(!clean) return /\b(?:hey|hi|okay|ok)\s+jarvis\b[\s,.:;!?-]*(.*)$/i;
- const words=clean.split(/\s+/).map(escapeRegex).join('\\s+');
- return new RegExp('(?:\\b(?:hey|hi|okay|ok)\\s+)?\\b'+words+'\\b[\\s,.:;!?-]*(.*)$','i');
+ if(!clean)return /\\b(?:(?:hey|hi|okay|ok)\\s+)?jarvis\\b[\\s,.:;!?-]*(.*)$/i;
+ const phraseWords=clean.split(/\\s+/);
+ if(/^(hey|hi|okay|ok)$/i.test(phraseWords[0])&&phraseWords.length>1)phraseWords.shift();
+ const core=phraseWords.map(escapeRegex).join('\\\\s+');
+ return new RegExp('(?:\\\\b(?:hey|hi|okay|ok)\\\\s+)?\\\\b'+core+'\\\\b[\\\\s,.:;!?-]*(.*)$','i');
 }
 
 export default function WakeWord({
@@ -16,13 +29,17 @@ export default function WakeWord({
  onGreeting,
  language='en-US',
  currentPhrase='Hey Jarvis',
- onPhraseChange
+ onPhraseChange,
+ speaking=false,
+ busy=false
 }:{
- onCommand:(command:string)=>void;
+ onCommand:(command:string)=>void|Promise<void>;
  onGreeting:()=>void;
  language?:string;
  currentPhrase?:string;
  onPhraseChange?:(phrase:string)=>void;
+ speaking?:boolean;
+ busy?:boolean;
 }){
  const [active,setActive]=useState(false);
  const [problem,setProblem]=useState('');
@@ -30,9 +47,14 @@ export default function WakeWord({
  const [showConfig,setShowConfig]=useState(false);
  const recognizer=useRef<SpeechLike|null>(null);
  const armed=useRef(false);
+ const blocked=useRef(speaking||busy);
  const commandRef=useRef(onCommand);
  const greetRef=useRef(onGreeting);
  const phraseRef=useRef(phrase);
+ const restartTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+ const restartDelay=useRef(500);
+ const lastTrigger=useRef(0);
+ const startRecognizerRef=useRef<()=>void>(()=>{});
 
  commandRef.current=onCommand;
  greetRef.current=onGreeting;
@@ -41,10 +63,35 @@ export default function WakeWord({
  useEffect(()=>{
   try{
    const saved=localStorage.getItem('irfan_wake_phrase');
-   if(saved){setPhrase(saved);onPhraseChange?.(saved)}
+   if(saved!==null){setPhrase(saved);onPhraseChange?.(saved)}
   }catch{}
  },[]);
 
+ function cancelRestart(){
+  if(restartTimer.current!==null){clearTimeout(restartTimer.current);restartTimer.current=null}
+ }
+ function haltRecognition(){
+  const current=recognizer.current;
+  recognizer.current=null;
+  if(!current)return;
+  current.onresult=null;current.onstart=null;current.onend=null;current.onerror=null;
+  try{current.stop()}catch{}
+ }
+ function scheduleRestart(delay=500){
+  cancelRestart();
+  if(!armed.current||blocked.current)return;
+  restartTimer.current=setTimeout(()=>{
+   restartTimer.current=null;
+   if(armed.current&&!blocked.current&&!recognizer.current)startRecognizerRef.current();
+  },delay);
+ }
+ function stop(){
+  armed.current=false;
+  cancelRestart();
+  haltRecognition();
+  setActive(false);
+  setProblem('');
+ }
  function updatePhrase(newPhrase:string){
   const clean=newPhrase.slice(0,50);
   setPhrase(clean);
@@ -52,72 +99,87 @@ export default function WakeWord({
   onPhraseChange?.(clean);
  }
 
- function stop(){
-  armed.current=false;
-  recognizer.current?.stop();
-  recognizer.current=null;
-  setActive(false);
- }
-
- function start(){
-  if(armed.current){stop();return}
+ function startRecognizer(){
+  if(!armed.current||blocked.current||recognizer.current)return;
   const ctor=(window as any).SpeechRecognition||(window as any).webkitSpeechRecognition;
   if(!ctor){
-   setProblem('Wake-word recognition is unavailable on this Windows/Chromium setup. Use Mic (push-to-talk).');
+   armed.current=false;setActive(false);
+   setProblem('Continuous wake-word recognition is not supported here. Use the installed Windows app or Mic (push-to-talk).');
    return;
   }
-  const rec:SpeechLike=new ctor();
+  let rec:SpeechLike;
+  try{rec=new ctor()}catch(e){
+   restartDelay.current=Math.min(5000,Math.ceil(restartDelay.current*1.7));
+   scheduleRestart(restartDelay.current);
+   setProblem('Could not initialize recognition; retrying.');
+   return;
+  }
   rec.continuous=true;
   rec.interimResults=false;
   rec.lang=language;
-  armed.current=true;
-  setProblem('');
-  setActive(true);
   recognizer.current=rec;
-
+  rec.onstart=()=>{
+   restartDelay.current=500;
+   setProblem('');
+  };
   rec.onresult=(event:any)=>{
-   const matcher=buildMatcher(phraseRef.current);
+   if(recognizer.current!==rec||!armed.current||blocked.current)return;
    for(let i=event.resultIndex;i<event.results.length;i++){
     if(!event.results[i].isFinal)continue;
     const heard=String(event.results[i][0]?.transcript||'').trim();
-    const match=heard.match(matcher);
+    const match=heard.match(buildMatcher(phraseRef.current));
     if(!match)continue;
+    const now=Date.now();
+    if(now-lastTrigger.current<1400)return;
+    lastTrigger.current=now;
     const command=match[1]?.trim();
-    if(command){stop();commandRef.current(command)}
-    else {greetRef.current()}
+    haltRecognition();
+    if(command)void Promise.resolve(commandRef.current(command)).catch(e=>setProblem('Command failed: '+String(e).slice(0,120)));
+    else greetRef.current();
+    return;
    }
   };
-
   rec.onerror=(event:any)=>{
-   if(['not-allowed','service-not-allowed','audio-capture','network','language-not-supported'].includes(event.error)){
-    armed.current=false;
-    setActive(false);
-    setProblem('Wake-word listener unavailable: '+event.error+'. Use push-to-talk.');
+   const reason=String(event?.error||'unknown');
+   if(['not-allowed','service-not-allowed','audio-capture','language-not-supported'].includes(reason)){
+    armed.current=false;cancelRestart();haltRecognition();setActive(false);
+    setProblem('Wake-word listener needs microphone permission or a supported language: '+reason+'. Use Mic (push-to-talk) meanwhile.');
+   }else if(reason==='network'||reason==='no-speech'){
+    setProblem(reason==='network'?'Wake-word service disconnected; reconnecting…':'');
    }
   };
-
   rec.onend=()=>{
-   if(armed.current&&recognizer.current===rec){
-    try{rec.start()}catch{
-     armed.current=false;
-     setActive(false);
-     setProblem('Wake word stopped; please enable it again.');
-    }
+   if(recognizer.current===rec)recognizer.current=null;
+   if(armed.current&&!blocked.current){
+    const wait=restartDelay.current;
+    restartDelay.current=Math.min(5000,Math.ceil(restartDelay.current*1.7));
+    scheduleRestart(wait);
    }
   };
-
-  try{rec.start()}catch(e){
-   armed.current=false;
-   recognizer.current=null;
-   setActive(false);
-   setProblem('Could not start listener: '+String(e));
+  try{rec.start()}catch{
+   if(recognizer.current===rec)recognizer.current=null;
+   const wait=restartDelay.current;
+   restartDelay.current=Math.min(5000,Math.ceil(restartDelay.current*1.7));
+   scheduleRestart(wait);
+   setProblem('Wake-word listener is restarting…');
   }
  }
+ startRecognizerRef.current=startRecognizer;
+
+ function start(){
+  if(armed.current){stop();return}
+  armed.current=true;setActive(true);setProblem('');restartDelay.current=500;
+  startRecognizer();
+ }
+
+ useEffect(()=>{
+  blocked.current=speaking||busy;
+  if(blocked.current){cancelRestart();haltRecognition()}
+  else if(armed.current)scheduleRestart(450);
+ },[speaking,busy]);
 
  useEffect(()=>()=>{
-  armed.current=false;
-  recognizer.current?.stop();
-  recognizer.current=null;
+  armed.current=false;cancelRestart();haltRecognition();
  },[]);
 
  return <div className="space-y-1">
@@ -126,7 +188,7 @@ export default function WakeWord({
   </button>
   <div className="flex justify-between items-center text-xs">
    <span className="text-cyan-600">
-    {active?'Listening for “'+phrase+'” (microphone active)':'Off by default; you control microphone access'}
+    {active?(speaking||busy?'Wake word paused while Jarvis responds':'Listening for “'+(phrase||'Jarvis')+'” (microphone active)'):'Off by default; you control microphone access'}
    </span>
    <button type="button" className="text-cyan-400 underline hover:text-cyan-200 ml-1" onClick={()=>setShowConfig(!showConfig)}>
     {showConfig?'Done':'Change'}
