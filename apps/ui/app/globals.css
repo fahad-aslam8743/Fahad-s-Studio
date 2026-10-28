@@ -1,1 +1,152 @@
-@tailwind base;@tailwind components;@tailwind utilities;:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#030815;color:#d4faff;font-family:ui-sans-serif,system-ui,sans-serif}.scan{background:repeating-linear-gradient(to bottom,transparent 0px,transparent 5px,#08c7ff08 6px);pointer-events:none}.gridbg{background-image:linear-gradient(#00eaff13 1px,transparent 1px),linear-gradient(90deg,#00eaff13 1px,transparent 1px);background-size:42px 42px}.glass{background:linear-gradient(145deg,#062035b8,#06101fbc);border:1px solid #1c78947c;box-shadow:inset 0 0 25px #00bfff0c,0 0 20px #00eaff08;backdrop-filter:blur(10px)}.glow{text-shadow:0 0 15px #00eaffb0}.btn{padding:.65rem 1rem;border:1px solid #1bb8ce88;background:#063447;cursor:pointer;border-radius:.5rem}.btn:hover{background:#0b5b70}.btn:disabled{opacity:.45}.input{background:#041424;border:1px solid #167890;border-radius:.45rem;padding:.65rem;color:#e3fcff;outline:none}.input:focus{border-color:#00eaff}.orb-wrap{filter:drop-shadow(0 0 30px #00eaff55)}.low *{animation:none!important;transition:none!important}.low .scan{display:none}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #030815;
+  color: #d4faff;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Futuristic Hollywood Glass & Neon Elements */
+.scan {
+  background: repeating-linear-gradient(to bottom, transparent 0px, transparent 4px, rgba(8, 199, 255, 0.04) 5px);
+  pointer-events: none;
+}
+
+.gridbg {
+  background-image: linear-gradient(rgba(0, 234, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 234, 255, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.glass {
+  background: linear-gradient(135deg, rgba(6, 32, 53, 0.75), rgba(3, 14, 28, 0.85));
+  border: 1px solid rgba(28, 120, 148, 0.45);
+  box-shadow: inset 0 0 25px rgba(0, 191, 255, 0.05), 0 8px 32px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+}
+
+.glass-glow {
+  background: linear-gradient(135deg, rgba(8, 45, 75, 0.8), rgba(4, 18, 38, 0.9));
+  border: 1px solid rgba(0, 234, 255, 0.6);
+  box-shadow: 0 0 25px rgba(0, 234, 255, 0.2), inset 0 0 15px rgba(0, 234, 255, 0.1);
+  backdrop-filter: blur(14px);
+}
+
+.glow {
+  text-shadow: 0 0 12px rgba(0, 234, 255, 0.7);
+}
+
+.glow-emerald {
+  text-shadow: 0 0 12px rgba(16, 185, 129, 0.7);
+}
+
+.btn {
+  padding: 0.6rem 1.1rem;
+  border: 1px solid rgba(27, 184, 206, 0.45);
+  background: linear-gradient(180deg, #07384e 0%, #042231 100%);
+  color: #e3fcff;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  border-radius: 0.5rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.btn:hover {
+  background: linear-gradient(180deg, #0c5779 0%, #063c56 100%);
+  border-color: #00eaff;
+  box-shadow: 0 0 16px rgba(0, 234, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.input {
+  background: rgba(4, 20, 36, 0.8);
+  border: 1px solid rgba(22, 120, 144, 0.6);
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  color: #e3fcff;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input:focus {
+  border-color: #00eaff;
+  box-shadow: 0 0 14px rgba(0, 234, 255, 0.25);
+}
+
+/* Custom Sleek Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(3, 12, 24, 0.8);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(22, 120, 144, 0.6);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #00eaff;
+}
+
+/* Cinematic Ticker Animation */
+@keyframes telemetryScan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  50% { opacity: 0.7; }
+  100% { transform: translateY(200%); opacity: 0; }
+}
+
+.telemetry-beam {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00eaff, transparent);
+  animation: telemetryScan 2.5s infinite linear;
+}
+
+.orb-wrap {
+  filter: drop-shadow(0 0 35px rgba(0, 234, 255, 0.35));
+}
+
+.low * {
+  animation: none !important;
+  transition: none !important;
+}
+
+.low .scan {
+  display: none;
+}
