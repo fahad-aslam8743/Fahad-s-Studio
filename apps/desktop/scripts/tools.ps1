@@ -1,0 +1,276 @@
+$ErrorActionPreference='Stop'
+try {
+  $request=[Console]::In.ReadToEnd() | ConvertFrom-Json
+  $name=[string]$request.name
+  $a=$request.args
+  function Out($x){$x | ConvertTo-Json -Depth 8 -Compress;exit 0}
+  function AppList {
+    $apps=@(Get-StartApps | Select-Object @{N='name';E={$_.Name}},@{N='id';E={$_.AppID}})
+    $dirs=@("$env:APPDATA\Microsoft\Windows\Start Menu\Programs","$env:ProgramData\Microsoft\Windows\Start Menu\Programs")
+    foreach($dir in $dirs){if(Test-Path -LiteralPath $dir){$apps+=@(Get-ChildItem -LiteralPath $dir -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {@{name=$_.BaseName;id=$_.FullName}})}}
+    return @($apps|Sort-Object name -Unique)
+  }
+  function TargetProcess($argsInput) {
+    if($argsInput.pid){return Get-Process -Id ([int]$argsInput.pid) -ErrorAction Stop}
+    if(-not $argsInput.name){throw 'Provide app name or PID'}
+    $search=[string]$argsInput.name
+    $trimmed=$search.Replace(' ','')
+    $found=@(Get-Process | Where-Object {$_.MainWindowHandle -ne 0 -and ($_.ProcessName -like ('*'+$search+'*') -or $_.MainWindowTitle -like ('*'+$search+'*'))})
+    if($found.Count -eq 0){
+      $found=@(Get-Process | Where-Object {$_.MainWindowHandle -ne 0 -and ($_.ProcessName -like ('*'+$trimmed+'*') -or $_.MainWindowTitle -like ('*'+$trimmed+'*'))})
+    }
+    if($found.Count -eq 0){
+      $found=@(Get-Process | Where-Object {$_.ProcessName -like ('*'+$search+'*') -or $_.ProcessName -like ('*'+$trimmed+'*')})
+    }
+    if($found.Count -eq 0){throw "No matching running window for '$search'"}
+    $titled=@($found | Where-Object {$_.MainWindowTitle.Trim().Length -gt 0})
+    if($titled.Count -gt 0){return $titled[0]}
+    return $found[0]
+  }
+  function EditDistance([string]$left,[string]$right) {
+    $previous=@(0..$right.Length)
+    for($i=1;$i -le $left.Length;$i++){
+      $current=New-Object int[] ($right.Length+1)
+      $current[0]=$i
+      for($j=1;$j -le $right.Length;$j++){
+        $cost=if($left[$i-1] -eq $right[$j-1]){0}else{1}
+        $current[$j]=[Math]::Min([Math]::Min($current[$j-1]+1,$previous[$j]+1),$previous[$j-1]+$cost)
+      }
+      $previous=$current
+    }
+    return $previous[$right.Length]
+  }
+  function WinApi {
+   if(-not ('NativeWindows' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class NativeWindows {
+ [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int cmd);
+ [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+ [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out RECT r);
+ [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int hgt,bool repaint);
+ [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hwnd,uint flags);
+ [DllImport("user32.dll")] public static extern void keybd_event(byte key,byte scan,int flags,UIntPtr info);
+ [StructLayout(LayoutKind.Sequential)] public struct RECT {public int left,top,right,bottom;}
+}
+'@
+   }
+  }
+  switch($name){
+   'list_installed_apps' {Out @{apps=@(AppList)}}
+   'open_app' {
+    $q=([string]$a.name).Trim().ToLowerInvariant()
+    $aliases=@{
+      'calc'='calc.exe';'calculator'='calc.exe';'notepad'='notepad.exe';
+      'explorer'='explorer.exe';'file explorer'='explorer.exe';'files'='explorer.exe';
+      'task manager'='taskmgr.exe';'taskmgr'='taskmgr.exe';
+      'cmd'='cmd.exe';'terminal'='wt.exe';'windows terminal'='wt.exe';
+      'settings'='ms-settings:';'chrome'='chrome.exe';'google chrome'='chrome.exe';
+      'edge'='msedge.exe';'microsoft edge'='msedge.exe';
+      'code'='code.cmd';'vscode'='code.cmd';'vs code'='code.cmd';
+      'whatsapp'='whatsapp:'
+    }
+    if($aliases.ContainsKey($q)){
+      try{
+        Start-Process -FilePath $aliases[$q]
+        WinApi
+        Start-Sleep -Milliseconds 350
+        for($i=0;$i -lt 10;$i++){
+          try{
+            $proc=TargetProcess @{name=$q}
+            if($proc -and $proc.MainWindowHandle -ne 0){
+              [NativeWindows]::ShowWindow($proc.MainWindowHandle,3)|Out-Null
+              [NativeWindows]::SetForegroundWindow($proc.MainWindowHandle)|Out-Null
+              break
+            }
+          }catch{}
+          Start-Sleep -Milliseconds 150
+        }
+        Out @{status='opened';app=$q;target=$aliases[$q]}
+      }catch{}
+    }
+    $apps=@(AppList)
+    $ranked=@($apps|ForEach-Object {$label=[string]$_.name;$lower=$label.ToLowerInvariant();$score=if($lower -eq $q){0}elseif($lower.StartsWith($q)){1}elseif($lower.Contains($q)){2}else{$distance=EditDistance $lower $q;if($distance -le [Math]::Max(2,[Math]::Ceiling($q.Length*.25))){3+$distance}else{100}};if($score -lt 100){@{name=$label;id=$_.id;score=$score}}}|Sort-Object score,name)
+    if($a.selection){$chosen=$ranked|Where-Object {$_.id -eq $a.selection}|Select-Object -First 1}
+    elseif($ranked.Count -eq 1 -or ($ranked.Count -gt 1 -and $ranked[0].score -eq 0 -and $ranked[1].score -ne 0)){$chosen=$ranked[0]}
+    elseif($ranked.Count -gt 0){
+      if($ranked[0].score -le 2){$chosen=$ranked[0]}
+      else{Out @{status='ambiguous';choices=@($ranked|Select-Object -First 8)}}
+    }
+    else {Out @{status='not_found';query=$a.name}}
+    $id=[string]$chosen.id
+    if($id.EndsWith('.lnk')){Start-Process -FilePath $id}
+    else {Start-Process -FilePath 'explorer.exe' -ArgumentList @("shell:AppsFolder\$id")}
+    WinApi
+    Start-Sleep -Milliseconds 350
+    for($i=0;$i -lt 10;$i++){
+      try{
+        $proc=TargetProcess @{name=$chosen.name}
+        if($proc -and $proc.MainWindowHandle -ne 0){
+          [NativeWindows]::ShowWindow($proc.MainWindowHandle,3)|Out-Null
+          [NativeWindows]::SetForegroundWindow($proc.MainWindowHandle)|Out-Null
+          break
+        }
+      }catch{}
+      Start-Sleep -Milliseconds 150
+    }
+    Out @{status='opened';app=$chosen.name}
+   }
+   'list_running_apps' {Out @{apps=@(Get-Process|Where-Object {$_.MainWindowHandle -ne 0}|Select-Object ProcessName,Id,MainWindowTitle)}}
+   'close_app' {
+     $p=TargetProcess $a
+     $closed=$p.CloseMainWindow()
+     if(-not $closed){try{$p.Kill();$closed=$true}catch{}}
+     Out @{requested=$closed;pid=$p.Id;processName=$p.ProcessName}
+   }
+   'focus_app' {
+     $p=TargetProcess $a
+     WinApi
+     $hwnd=$p.MainWindowHandle
+     [NativeWindows]::ShowWindow($hwnd,9)|Out-Null
+     $ok=[NativeWindows]::SetForegroundWindow($hwnd)
+     Out @{focused=[bool]$ok;processName=$p.ProcessName;pid=$p.Id;title=$p.MainWindowTitle}
+   }
+   'open_settings' {
+     $p=if($a.page){[string]$a.page}else{''}
+     $uri=if($p -and $p -notmatch '^ms-settings:'){'ms-settings:'+$p}elseif($p){$p}else{'ms-settings:'}
+     Start-Process -FilePath $uri
+     Out @{status='opened';settingsPage=$uri}
+   }
+   'window_control' {
+     if($a.action -eq 'minimize_all'){$shell=New-Object -ComObject Shell.Application;$shell.MinimizeAll();Out @{ok=$true}}
+     $p=TargetProcess $a;if($p.MainWindowHandle -eq 0){throw 'No visible top-level window for process'}
+     Add-Type -AssemblyName System.Windows.Forms;WinApi;$hwnd=$p.MainWindowHandle
+     switch($a.action){
+      'minimize' {$ok=[NativeWindows]::ShowWindow($hwnd,6)}
+      'maximize' {
+        [NativeWindows]::ShowWindow($hwnd,3)|Out-Null
+        $ok=[NativeWindows]::SetForegroundWindow($hwnd)
+      }
+      'restore' {
+        [NativeWindows]::ShowWindow($hwnd,9)|Out-Null
+        $ok=[NativeWindows]::SetForegroundWindow($hwnd)
+      }
+      'close' {$ok=$p.CloseMainWindow()}
+      'focus' {
+        [NativeWindows]::ShowWindow($hwnd,9)|Out-Null
+        $ok=[NativeWindows]::SetForegroundWindow($hwnd)
+      }
+      {$_ -in 'left','right'} {
+        $rect=[NativeWindows+RECT]::new();[NativeWindows]::GetWindowRect($hwnd,[ref]$rect)|Out-Null
+        $screen=[System.Windows.Forms.Screen]::FromHandle($hwnd).WorkingArea
+        $w=[int]($screen.Width/2);$x=if($a.action -eq 'right'){$screen.Left+$w}else{$screen.Left}
+        $ok=[NativeWindows]::MoveWindow($hwnd,$x,$screen.Top,$w,$screen.Height,$true)
+      }
+      'monitor_next' {
+        $screens=[System.Windows.Forms.Screen]::AllScreens
+        if($screens.Count -lt 2){throw 'Only one monitor detected'}
+        $current=[System.Windows.Forms.Screen]::FromHandle($hwnd)
+        $index=[Array]::FindIndex($screens,[Predicate[System.Windows.Forms.Screen]]{param($screen) $screen.DeviceName -eq $current.DeviceName})
+        if($index -lt 0){throw 'Current monitor not found'}
+        $next=$screens[($index+1)%$screens.Count].WorkingArea
+        $rect=[NativeWindows+RECT]::new();[NativeWindows]::GetWindowRect($hwnd,[ref]$rect)|Out-Null
+        [NativeWindows]::ShowWindow($hwnd,9)|Out-Null
+        $width=[Math]::Min(($rect.right-$rect.left),$next.Width)
+        $height=[Math]::Min(($rect.bottom-$rect.top),$next.Height)
+        $ok=[NativeWindows]::MoveWindow($hwnd,$next.Left,$next.Top,$width,$height,$true)
+      }
+     }
+     Out @{ok=[bool]$ok;action=$a.action;processName=$p.ProcessName;pid=$p.Id}
+   }
+   'open_website' {Start-Process -FilePath ([string]$a.url);Out @{opened=$a.url}}
+   'youtube_search' {$u='https://www.youtube.com/results?search_query='+[uri]::EscapeDataString([string]$a.query);Start-Process $u;Out @{opened=$u}}
+   'system_volume' {
+      WinApi
+      $key=if($a.action -eq 'up'){175}elseif($a.action -eq 'down'){174}else{173}
+      [NativeWindows]::keybd_event([byte]$key,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [NativeWindows]::keybd_event([byte]$key,0,2,[UIntPtr]::Zero)
+      Out @{requested=$a.action;note='Virtual media keys; hardware and audio service may vary'}
+   }
+   'screen_brightness' {$m=Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop|Select-Object -First 1;if(-not $m){throw 'Brightness control not supported'};$m|Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{Timeout=1;Brightness=[byte]$a.percent}|Out-Null;Out @{brightness=$a.percent}}
+   'system_radio' {
+     if($a.device -ne 'wifi'){
+       $uri=if($a.device -eq 'bluetooth'){'ms-settings:bluetooth'}else{'ms-settings:network-airplanemode'}
+       Start-Process -FilePath $uri
+       Out @{status='manual_action_required';device=$a.device;requestedEnabled=$a.enabled;settingsOpened=$uri}
+     }
+     $identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()
+     $principal=New-Object System.Security.Principal.WindowsPrincipal($identity)
+     if(-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)){
+       throw 'Wi-Fi adapter changes require Administrator rights. Jarvis will not elevate itself.'
+     }
+     $adapt=Get-NetAdapter -Physical|Where-Object {$_.InterfaceDescription -match 'Wi-Fi|Wireless|802.11'}|Select-Object -First 1;if(-not $adapt){throw 'Wi-Fi adapter not found'}
+     if($a.enabled){Enable-NetAdapter -Name $adapt.Name -Confirm:$false -ErrorAction Stop}else{Disable-NetAdapter -Name $adapt.Name -Confirm:$false -ErrorAction Stop};Out @{ok=$true;requiresAdmin=$true}
+   }
+   'dark_mode' {$reg='HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize';Set-ItemProperty -Path $reg -Name AppsUseLightTheme -Value ([int](!$a.enabled));Set-ItemProperty -Path $reg -Name SystemUsesLightTheme -Value ([int](!$a.enabled));Out @{ok=$true;note='Some apps require restart'}}
+   'lock_screen' {Start-Process -FilePath 'rundll32.exe' -ArgumentList @('user32.dll,LockWorkStation');Out @{requested=$true}}
+   'sleep_pc' {Start-Process -FilePath 'rundll32.exe' -ArgumentList @('powrprof.dll,SetSuspendState','0,1,0');Out @{requested=$true}}
+   'open_folder' {if(-not (Test-Path -LiteralPath ([string]$a.path) -PathType Container)){throw 'Folder not found'};Start-Process -FilePath 'explorer.exe' -ArgumentList @([string]$a.path);Out @{opened=$a.path}}
+   'find_file' {$root=if($a.root){[string]$a.root}else{[Environment]::GetFolderPath('MyDocuments')};if(-not(Test-Path -LiteralPath $root -PathType Container)){throw 'Search root missing'};$items=@(Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction SilentlyContinue|Where-Object {$_.Name -like ('*'+[string]$a.name+'*')}|Select-Object -First 30 -ExpandProperty FullName);Out @{files=$items;truncated=($items.Count -ge 30)}}
+   'open_file' {if(-not(Test-Path -LiteralPath ([string]$a.path) -PathType Leaf)){throw 'File not found'};Start-Process -FilePath ([string]$a.path);Out @{opened=$a.path}}
+   'move_file' {if(-not(Test-Path -LiteralPath ([string]$a.source) -PathType Leaf)){throw 'Source missing'};Move-Item -LiteralPath ([string]$a.source) -Destination ([string]$a.destination) -ErrorAction Stop;Out @{moved=$true}}
+   'delete_file' {Add-Type -AssemblyName Microsoft.VisualBasic;[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile([string]$a.path,'OnlyErrorDialogs','SendToRecycleBin');Out @{recycled=$true}}
+   'clipboard_read' {Add-Type -AssemblyName System.Windows.Forms;Out @{text=[System.Windows.Forms.Clipboard]::GetText()}}
+   'clipboard_write' {Set-Clipboard -Value ([string]$a.text);Out @{written=$true}}
+   'screenshot' {Add-Type -AssemblyName System.Windows.Forms;Add-Type -AssemblyName System.Drawing;$rect=[System.Windows.Forms.SystemInformation]::VirtualScreen;$bmp=New-Object System.Drawing.Bitmap($rect.Width,$rect.Height);$g=[System.Drawing.Graphics]::FromImage($bmp);$g.CopyFromScreen($rect.Left,$rect.Top,0,0,$bmp.Size);$file=Join-Path ([Environment]::GetFolderPath('MyPictures')) ('Jarvis-'+(Get-Date -Format 'yyyyMMdd-HHmmss')+'.png');$bmp.Save($file);$g.Dispose();$bmp.Dispose();Out @{path=$file}}
+   'ui_inspect' {
+      Add-Type -AssemblyName UIAutomationClient
+      Add-Type -AssemblyName UIAutomationTypes
+      $proc=Get-Process -Id ([int]$a.pid) -ErrorAction Stop
+      if($proc.MainWindowHandle -eq 0){throw 'Target process has no accessible main window'}
+      $root=[System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+      if($null -eq $root){throw 'Target window is inaccessible'}
+      $limit=[Math]::Min(100,[Math]::Max(1,[int]$a.limit));if(-not $a.limit){$limit=60}
+      $found=New-Object 'System.Collections.ArrayList'
+      $queue=New-Object 'System.Collections.Queue'
+      $queue.Enqueue(@{element=$root;depth=0})
+      $scanned=0
+      while($queue.Count -gt 0 -and $found.Count -lt $limit -and $scanned -lt 500){
+        $next=$queue.Dequeue()
+        $scanned++
+        if($next.depth -ge 6){continue}
+        try{$children=$next.element.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)}catch{continue}
+        foreach($control in $children){
+          if($found.Count -ge $limit){break}
+          try{
+            $cur=$control.Current
+            $controlId=[string]$cur.AutomationId
+            $display=[string]$cur.Name
+            $ctype=[string]$cur.ControlType.ProgrammaticName
+            if($controlId){[void]$found.Add(@{automationId=$controlId;name=$display.Substring(0,[Math]::Min(160,$display.Length));controlType=$ctype;enabled=[bool]$cur.IsEnabled})}
+            if($next.depth -lt 5){$queue.Enqueue(@{element=$control;depth=$next.depth+1})}
+          }catch{}
+        }
+      }
+      Out @{pid=$proc.Id;controls=@($found.ToArray());truncated=($found.Count -ge $limit -or $queue.Count -gt 0)}
+   }
+   'ui_automation' {
+      Add-Type -AssemblyName UIAutomationClient
+      Add-Type -AssemblyName UIAutomationTypes
+      $proc=Get-Process -Id ([int]$a.pid) -ErrorAction Stop
+      if($proc.MainWindowHandle -eq 0){throw 'Target process has no accessible main window'}
+      $root=[System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+      if($null -eq $root){throw 'Target window is inaccessible'}
+      $condition=New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty,[string]$a.automationId)
+      $target=$root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
+      if($null -eq $target){throw 'AutomationId not found in selected window'}
+      if($a.expectedName -and [string]$target.Current.Name -cne [string]$a.expectedName){throw 'Control name changed; inspect again before clicking'}
+      $patternId=switch([string]$a.action){
+        'invoke' {[System.Windows.Automation.InvokePattern]::Pattern}
+        'toggle' {[System.Windows.Automation.TogglePattern]::Pattern}
+        'set_value' {[System.Windows.Automation.ValuePattern]::Pattern}
+      }
+      $pattern=$null
+      if(-not $target.TryGetCurrentPattern($patternId,[ref]$pattern)){throw 'Control does not expose requested UI Automation pattern'}
+      switch([string]$a.action){
+        'invoke' {$pattern.Invoke()}
+        'toggle' {$pattern.Toggle()}
+        'set_value' {if($pattern.Current.IsReadOnly){throw 'Control is read-only'};$pattern.SetValue([string]$a.value)}
+      }
+      Out @{ok=$true;pid=$proc.Id;automationId=$a.automationId;action=$a.action}
+   }
+   default {throw 'Unknown or blocked tool'}
+  }
+}catch{ @{error=$_.Exception.Message}|ConvertTo-Json -Compress;exit 1}

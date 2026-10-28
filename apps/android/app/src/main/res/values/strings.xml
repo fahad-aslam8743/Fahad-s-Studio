@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">JARVIS Companion</string>
+    <string name="accessibility_description">Optional, user-confirmed control of visible app controls. No unattended or covert clicks.</string>
+</resources>

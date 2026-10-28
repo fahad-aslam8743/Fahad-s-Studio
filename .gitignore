@@ -7,3 +7,12 @@ node_modules/
 **/release/
 .DS_Store
 *.log
+
+*.tsbuildinfo
+
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+.wrangler/
+**/.wrangler/

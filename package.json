@@ -1,1 +1,18 @@
-{"name":"irfans-studio","private":true,"version":"0.1.0","packageManager":"pnpm@10.18.0","scripts":{"dev":"concurrently -k -n api,ui,desktop \"pnpm --filter @irfan/api dev\" \"pnpm --filter @irfan/ui dev\" \"pnpm --filter @irfan/desktop dev\"","build":"pnpm --filter @irfan/shared build && pnpm --filter @irfan/ui build && pnpm --filter @irfan/api build && pnpm --filter @irfan/desktop build","typecheck":"pnpm -r typecheck"},"devDependencies":{"concurrently":"^9.2.1","typescript":"^5.9.3"}}
+{
+  "name": "irfans-studio",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.18.0",
+  "scripts": {
+    "predev": "node scripts/preflight-ports.mjs --clean",
+    "clean:ports": "node scripts/preflight-ports.mjs --clean",
+    "dev": "node scripts/preflight-ports.mjs --clean && concurrently -k -n worker,ui,desktop -c \"yellow.bold,cyan.bold,magenta.bold\" \"pnpm --filter @irfan/worker dev\" \"pnpm --filter @irfan/ui dev\" \"pnpm --filter @irfan/desktop dev\"",
+    "dev:api": "concurrently -k -n api,ui,desktop -c \"blue.bold,cyan.bold,magenta.bold\" \"pnpm --filter @irfan/api dev\" \"pnpm --filter @irfan/ui dev\" \"pnpm --filter @irfan/desktop dev\"",
+    "build": "pnpm --filter @irfan/shared build && pnpm --filter @irfan/ui build && pnpm --filter @irfan/api build && pnpm --filter @irfan/desktop build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  }
+}

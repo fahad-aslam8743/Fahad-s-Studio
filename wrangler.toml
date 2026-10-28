@@ -4,3 +4,6 @@ name = "fahad-s-studio"
 main = "services/worker/src/index.js"
 compatibility_date = "2026-10-18"
 workers_dev = true
+
+# Required by Wrangler v4 for Workers Builds preview deployments.
+[previews]
