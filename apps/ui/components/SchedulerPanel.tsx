@@ -37,10 +37,27 @@ export default function SchedulerPanel({
   setLoading(true);
   try{
    const data=await request('/tasks');
-   if(Array.isArray(data)) setTasks(data);
+   if(Array.isArray(data) && data.length > 0) {
+     setTasks(data);
+     try { localStorage.setItem('jarvis_scheduled_tasks', JSON.stringify(data)); } catch {}
+   } else {
+     const saved = localStorage.getItem('jarvis_scheduled_tasks');
+     if (saved) setTasks(JSON.parse(saved));
+     else if (Array.isArray(data)) setTasks([]);
+   }
    setError('');
   }catch(e){
-   setError('Could not load scheduled tasks: '+String(e));
+   try {
+     const saved = localStorage.getItem('jarvis_scheduled_tasks');
+     if (saved) {
+       setTasks(JSON.parse(saved));
+       setError('');
+     } else {
+       setError('Could not load scheduled tasks: '+String(e));
+     }
+   } catch {
+     setError('Could not load scheduled tasks: '+String(e));
+   }
   }finally{
    setLoading(false);
   }
@@ -58,20 +75,33 @@ export default function SchedulerPanel({
    next.setHours(hours||9,minutes||0,0,0);
    if(next.getTime()<=Date.now()) next.setDate(next.getDate()+1);
 
-   await request('/tasks',{
-    method:'POST',
-    body:JSON.stringify({
-     title:title.trim(),
-     description:details.trim()||undefined,
-     schedule_type:scheduleType,
-     schedule_value:timeStr,
-     action_type:actionType,
-     action_config:{details:details.trim()},
-     execution_target:target,
-     status:'active',
-     next_run_at:next.toISOString()
-    })
-   });
+   const newTask: ScheduledTask = {
+     id: 'task_' + Date.now(),
+     title: title.trim(),
+     description: details.trim() || undefined,
+     schedule_type: scheduleType,
+     schedule_value: timeStr,
+     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+     action_type: actionType,
+     action_config: {details: details.trim()},
+     execution_target: target,
+     status: 'active',
+     next_run_at: next.toISOString(),
+     run_count: 0
+   };
+
+   try{
+     await request('/tasks',{
+      method:'POST',
+      body:JSON.stringify(newTask)
+     });
+   } catch {
+     // Local persistent storage fallback
+     const saved = localStorage.getItem('jarvis_scheduled_tasks');
+     const list: ScheduledTask[] = saved ? JSON.parse(saved) : [];
+     list.unshift(newTask);
+     localStorage.setItem('jarvis_scheduled_tasks', JSON.stringify(list));
+   }
    setTitle('');
    setDetails('');
    setCreating(false);
@@ -84,10 +114,22 @@ export default function SchedulerPanel({
  async function toggleStatus(task:ScheduledTask){
   const nextStatus=task.status==='active'?'paused':'active';
   try{
-   await request('/tasks/'+task.id,{
-    method:'PATCH',
-    body:JSON.stringify({status:nextStatus})
-   });
+   try{
+     await request('/tasks/'+task.id,{
+      method:'PATCH',
+      body:JSON.stringify({status:nextStatus})
+     });
+   } catch {
+     const saved = localStorage.getItem('jarvis_scheduled_tasks');
+     if (saved) {
+       const list: ScheduledTask[] = JSON.parse(saved);
+       const idx = list.findIndex(t => t.id === task.id);
+       if (idx >= 0) {
+         list[idx].status = nextStatus;
+         localStorage.setItem('jarvis_scheduled_tasks', JSON.stringify(list));
+       }
+     }
+   }
    await loadTasks();
   }catch(e){
    setError('Failed to update task: '+String(e));
@@ -97,7 +139,16 @@ export default function SchedulerPanel({
  async function deleteTask(id:string){
   if(!confirm('Delete this scheduled task?')) return;
   try{
-   await request('/tasks/'+id,{method:'DELETE'});
+   try {
+     await request('/tasks/'+id,{method:'DELETE'});
+   } catch {
+     const saved = localStorage.getItem('jarvis_scheduled_tasks');
+     if (saved) {
+       const list: ScheduledTask[] = JSON.parse(saved);
+       const updated = list.filter(t => t.id !== id);
+       localStorage.setItem('jarvis_scheduled_tasks', JSON.stringify(updated));
+     }
+   }
    await loadTasks();
   }catch(e){
    setError('Failed to delete task: '+String(e));

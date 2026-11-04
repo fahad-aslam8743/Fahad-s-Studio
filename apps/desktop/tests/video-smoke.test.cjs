@@ -8,8 +8,19 @@ function probe(file){return JSON.parse(run('ffprobe',['-v','error','-show_entrie
 const original=Object.getOwnPropertyDescriptor(process,'platform');
 if(!original.configurable)throw Error('Cannot simulate win32 for FFmpeg smoke tests');
 Object.defineProperty(process,'platform',{configurable:true,value:'win32'});
-test('FFmpeg: merge with silence fill, speed mute and music, transition with audio',async()=>{
- const dir=await fs.mkdtemp(path.join(os.tmpdir(),'irfan-ffmpeg-regression-'));
+const hasFfmpeg = (() => {
+  try {
+    const p = spawnSync('ffmpeg', ['-version']);
+    return p.status === 0;
+  } catch { return false; }
+})();
+
+test('FFmpeg: merge with silence fill, speed mute and music, transition with audio', async (t) => {
+  if (!hasFfmpeg) {
+    t.skip('FFmpeg binary not installed in host PATH; skipping live media transcoding smoke test');
+    return;
+  }
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'irfan-ffmpeg-regression-'));
  try{
   const a=path.join(dir,'a.mp4'),b=path.join(dir,'b.mp4'),c=path.join(dir,'music.wav'),merged=path.join(dir,'merged.mp4'),speed=path.join(dir,'speed.mp4'),mixed=path.join(dir,'mixed.mp4'),transition=path.join(dir,'transition.mp4');
   run('ffmpeg',['-hide_banner','-loglevel','error','-f','lavfi','-i','testsrc2=size=320x180:rate=30:duration=2','-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-shortest',a]);

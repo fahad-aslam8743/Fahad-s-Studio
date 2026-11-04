@@ -56,6 +56,11 @@ export default function WakeWord({
           commandAudioRef.current(audioBlob);
         }
       },
+      // onCommandText fires when the Web Speech API delivers a text transcript of the
+      // user command directly — bypasses the STT round-trip to /stt endpoint.
+      onCommandText: (text) => {
+        commandRef.current(text);
+      },
       onStateChange: (s) => setState(s),
       onError: (err) => {
         setProblem(err);
@@ -103,13 +108,17 @@ export default function WakeWord({
       const detector = new OfflineWakeDetector({
         wakePhrase: phrase,
         sensitivity,
-        onWakeDetected: (_detectedPhrase) => {
-          greetRef.current();
+        onWakeDetected: (_detectedPhrase, startCapture) => {
+          greetRef.current(startCapture);
         },
         onCommandCaptured: (audioBlob) => {
           if (commandAudioRef.current) {
             commandAudioRef.current(audioBlob);
           }
+        },
+        // Wire onCommandText so manually toggled detector also delivers fast transcripts
+        onCommandText: (text) => {
+          commandRef.current(text);
         },
         onStateChange: (s) => setState(s),
         onError: (err) => {
@@ -132,6 +141,8 @@ export default function WakeWord({
             ? 'bg-orange-950/40 border-orange-500 text-orange-200 animate-pulse shadow-[0_0_15px_rgba(249,115,22,0.3)]'
             : state === 'suspended'
             ? 'bg-cyan-950/20 border-cyan-800 text-cyan-400'
+            : state === 'api_unavailable'
+            ? 'bg-yellow-950/30 border-yellow-700 text-yellow-300'
             : 'bg-slate-900/40 border-slate-700 text-slate-400'
         }`}
         onClick={toggleStart}
@@ -142,22 +153,27 @@ export default function WakeWord({
           {state === 'capturing' && <span className="w-2.5 h-2.5 rounded-full bg-orange-400 animate-pulse" />}
           {state === 'suspended' && <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" />}
           {state === 'disabled' && <span className="w-2.5 h-2.5 rounded-full bg-slate-600" />}
+          {state === 'api_unavailable' && <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />}
           <div className="text-left">
             <div className="text-xs font-semibold tracking-wide">
               {state === 'listening'
-                ? `ALWAYS LISTENING: “${phrase.toUpperCase()}”`
+                ? `ALWAYS LISTENING: "${phrase.toUpperCase()}"`
                 : state === 'capturing'
                 ? 'CAPTURING VOICE DIRECTIVE...'
                 : state === 'suspended'
                 ? 'ECHO SHIELD (JARVIS SPEAKING)'
+                : state === 'api_unavailable'
+                ? 'SPEECH API UNAVAILABLE'
                 : 'SENSOR MUTED (CLICK TO ARM)'}
             </div>
             <div className="text-[10px] opacity-75">
               {state === 'listening'
-                ? 'Speak anytime • Window auto-maximizes'
+                ? 'Speak anytime \u2022 Window auto-maximizes'
                 : state === 'capturing'
                 ? 'Listening to your command speech'
-                : 'Zero remote audio • 100% on-device'}
+                : state === 'api_unavailable'
+                ? 'Use Push-to-Talk (Alt+M) or text input instead'
+                : 'Continuous keyword recognition \u2022 Push-to-Talk: Alt+M'}
             </div>
           </div>
         </div>
@@ -218,6 +234,13 @@ export default function WakeWord({
               </button>
             ))}
           </div>
+          {state === 'api_unavailable' && (
+            <p className="text-yellow-300 text-[10px] bg-yellow-950/40 p-1.5 rounded border border-yellow-800">
+              Web Speech API is unavailable in this environment. Wake-word detection requires
+              Chromium/Electron with microphone access. Use the Push-to-Talk button (Alt+M) or
+              type commands directly.
+            </p>
+          )}
         </div>
       )}
 

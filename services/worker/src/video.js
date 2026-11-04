@@ -1,4 +1,3 @@
-import {createFalClient} from '@fal-ai/client';
 import {VIDEO_MODELS,DIRECTOR_TEMPLATE} from './video-models.js';
 const out=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 async function persist(env,table,method='GET',query='',data){const r=await fetch(env.SUPABASE_URL+'/rest/v1/'+table+query,{method,headers:{Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,apikey:env.SUPABASE_SERVICE_ROLE_KEY,'content-type':'application/json',Prefer:'return=representation'},...(data===undefined?{}:{body:JSON.stringify(data)})});if(!r.ok)throw Error('Video history persistence failed ('+r.status+')');return r.json()}
@@ -26,10 +25,24 @@ function choice(b){
 export class FalEngine{
  get name(){return 'fal'}
  async execute(request){return this.submit(request.model,request.input)}
- constructor(env){if(!env.FAL_KEY)throw Error('FAL_KEY not configured; paid video engine disabled');this.env=env;this.client=createFalClient({credentials:env.FAL_KEY})}
- async submit(model,input){return this.client.queue.submit(model,{input})}
- async status(model,requestId){return this.client.queue.status(model,{requestId,logs:true})}
- async result(model,requestId){return this.client.queue.result(model,{requestId})}
+ constructor(env, customClient = null){
+   if(!env?.FAL_KEY)throw Error('FAL_KEY not configured; paid video engine disabled');
+   this.env=env;
+   this.client=customClient;
+ }
+ async getClient(){
+   if(this.client) return this.client;
+   try {
+     const {createFalClient} = await import('@fal-ai/client');
+     this.client = createFalClient({credentials:this.env.FAL_KEY});
+     return this.client;
+   } catch {
+     throw Error('@fal-ai/client library is not installed or available. Please install dependencies or use local FFmpeg.');
+   }
+ }
+ async submit(model,input){const c=await this.getClient();return c.queue.submit(model,{input})}
+ async status(model,requestId){const c=await this.getClient();return c.queue.status(model,{requestId,logs:true})}
+ async result(model,requestId){const c=await this.getClient();return c.queue.result(model,{requestId})}
 }
 export async function handleVideo(request,env,path,gemini,textOf){
  if(!path.startsWith('/video/'))return null;

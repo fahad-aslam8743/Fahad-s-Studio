@@ -48,5 +48,39 @@ contextBridge.exposeInMainWorld('irfan', Object.freeze({
   },
   showAndFocus: () => ipcRenderer.invoke('window:showAndFocus'),
   maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
-  minimizeWindow: () => ipcRenderer.invoke('window:minimize')
+  minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
+  lifecycleGetSettings: () => ipcRenderer.invoke('lifecycle:get-settings'),
+  lifecycleSetBackgroundMode: (enabled: boolean) => ipcRenderer.invoke('lifecycle:set-background-mode', {enabled}),
+  lifecycleSetMicEnabled: (enabled: boolean) => ipcRenderer.invoke('lifecycle:set-mic-enabled', {enabled}),
+  lifecycleSetAutoLaunch: (enabled: boolean) => ipcRenderer.invoke('lifecycle:set-autolaunch', {enabled}),
+  lifecycleUpdateStatus: (status: string) => ipcRenderer.invoke('lifecycle:update-status', {status}),
+  lifecycleQuit: () => ipcRenderer.invoke('lifecycle:quit'),
+  onPowerSuspend: (handler: () => void) => {
+    const listener = () => handler();
+    ipcRenderer.on('power:suspend', listener);
+    return () => ipcRenderer.removeListener('power:suspend', listener);
+  },
+  onPowerResume: (handler: () => void) => {
+    const listener = () => handler();
+    ipcRenderer.on('power:resume', listener);
+    return () => ipcRenderer.removeListener('power:resume', listener);
+  },
+  onMicToggled: (handler: (data: {enabled: boolean}) => void) => {
+    const listener = (_e: any, d: any) => handler(d);
+    ipcRenderer.on('lifecycle:mic-toggled', listener);
+    return () => ipcRenderer.removeListener('lifecycle:mic-toggled', listener);
+  },
+  onSchedulerReminder: (handler: (task: unknown) => void) => {
+    const listener = (_e: any, data: any) => handler(data?.task);
+    ipcRenderer.on('scheduler:reminder', listener);
+    return () => ipcRenderer.removeListener('scheduler:reminder', listener);
+  },
+  onSchedulerAction: (handler: (data: {task: unknown; executionId: string}) => void) => {
+    const listener = (_e: any, data: any) => handler(data);
+    ipcRenderer.on('scheduler:execute-action', listener);
+    return () => ipcRenderer.removeListener('scheduler:execute-action', listener);
+  },
+  reportSchedulerResult: (taskId: string, executionId: string, success: boolean, outcome?: string, error?: string) => {
+    ipcRenderer.send('scheduler:execute-result:' + taskId, {taskId, executionId, success, outcome, error});
+  }
 }));

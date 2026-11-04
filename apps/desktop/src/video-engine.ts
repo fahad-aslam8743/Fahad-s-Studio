@@ -51,9 +51,74 @@ const filters={
 function filterPath(p:string){return p.replace(/\\/g,'/').replace(/:/g,'\\:').replace(/'/g,"\\'").replace(/,/g,'\\,').replace(/\[/g,'\\[').replace(/\]/g,'\\]')}
 async function probe(fileName:string){const result=await invoke(process.env.IRFAN_FFPROBE_PATH||'ffprobe',['-v','error','-show_entries','stream=codec_type:format=duration','-of','json',fileName],12000);const info=JSON.parse(result);return {audio:info.streams?.some((s:{codec_type:string})=>s.codec_type==='audio')===true,duration:Number(info.format?.duration||0)};}
 function standard(o:string[]){return [...o,'-c:v','libx264','-preset','medium','-crf','21','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-movflags','+faststart']}
+export interface FfmpegDiagnostics {
+  ffmpegInstalled: boolean;
+  ffprobeInstalled: boolean;
+  ffmpegPath: string;
+  ffprobePath: string;
+  ffmpegVersion?: string;
+  codecs: {
+    h264: boolean;
+    aac: boolean;
+  };
+  installationGuidance?: string;
+}
+
+export async function diagnoseFfmpegEnvironment(): Promise<FfmpegDiagnostics> {
+  const customFfmpeg = process.env.IRFAN_FFMPEG_PATH || 'ffmpeg';
+  const customFfprobe = process.env.IRFAN_FFPROBE_PATH || 'ffprobe';
+  
+  let ffmpegInstalled = false;
+  let ffprobeInstalled = false;
+  let ffmpegVersion: string | undefined;
+  let h264 = false;
+  let aac = false;
+
+  try {
+    const res = await invoke(customFfmpeg, ['-version'], 4000);
+    ffmpegInstalled = true;
+    const match = res.match(/ffmpeg version\s+([^\s]+)/i);
+    ffmpegVersion = match ? match[1] : 'unknown';
+  } catch {}
+
+  try {
+    await invoke(customFfprobe, ['-version'], 4000);
+    ffprobeInstalled = true;
+  } catch {}
+
+  if (ffmpegInstalled) {
+    try {
+      const codecsRes = await invoke(customFfmpeg, ['-codecs'], 4000);
+      h264 = /libx264/i.test(codecsRes) || /h264/i.test(codecsRes);
+      aac = /aac/i.test(codecsRes);
+    } catch {}
+  }
+
+  let installationGuidance: string | undefined;
+  if (!ffmpegInstalled || !ffprobeInstalled) {
+    installationGuidance = 'FFmpeg and FFprobe are required for local video production.\nInstallation Guide:\n1. Download Windows release from https://www.gyan.dev/ffmpeg/builds/ (or run "winget install Gyan.FFmpeg")\n2. Add the bin folder to System PATH or configure IRFAN_FFMPEG_PATH and IRFAN_FFPROBE_PATH environment variables.';
+  }
+
+  return {
+    ffmpegInstalled,
+    ffprobeInstalled,
+    ffmpegPath: customFfmpeg,
+    ffprobePath: customFfprobe,
+    ffmpegVersion,
+    codecs: {h264, aac},
+    installationGuidance
+  };
+}
+
 export class LocalEngine implements VideoEngine{
  readonly name='local' as const;
- constructor(private readonly ffmpeg=process.env.IRFAN_FFMPEG_PATH||'ffmpeg',private readonly whisper=process.env.IRFAN_WHISPER_PATH||'whisper-cli'){}
+ readonly ffmpeg: string;
+ readonly whisper: string;
+ private verifiedFfmpeg = false;
+ constructor(ffmpeg?: string, whisper?: string){
+   this.ffmpeg = ffmpeg || process.env.IRFAN_FFMPEG_PATH || 'ffmpeg';
+   this.whisper = whisper || process.env.IRFAN_WHISPER_PATH || 'whisper-cli';
+ }
  async execute(plan:LocalEdit,onProgress?:(p:{step:number;total:number;message:string})=>void){return this.render(plan,onProgress)}
  async render(raw:LocalEdit,onProgress?:(p:{step:number;total:number;message:string})=>void){
   const plan=videoEditSchema.parse(raw);
@@ -61,6 +126,13 @@ export class LocalEngine implements VideoEngine{
   if(!path.isAbsolute(plan.input)||!path.isAbsolute(plan.output))throw Error('Input and output must use absolute paths');
   await fs.access(plan.input);await fs.access(path.dirname(plan.output));
   if(path.resolve(plan.input).toLowerCase()===path.resolve(plan.output).toLowerCase())throw Error('Refusing to overwrite source media');
+  if(!this.verifiedFfmpeg){
+    const diag = await diagnoseFfmpegEnvironment();
+    if(!diag.ffmpegInstalled){
+      throw Error('FFmpeg binary not found at "'+this.ffmpeg+'". '+diag.installationGuidance);
+    }
+    this.verifiedFfmpeg = true;
+  }
   const temp=await fs.mkdtemp(path.join(os.tmpdir(),'irfan-video-'));let current=plan.input;
   try{
    for(let i=0;i<plan.steps.length;i++){

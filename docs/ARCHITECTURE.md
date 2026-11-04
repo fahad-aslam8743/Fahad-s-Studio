@@ -68,24 +68,34 @@ The repository is structured as a pnpm monorepo:
 ## 3. Data & Communication Pipelines
 
 ### A. Voice & Conversation Flow
-1. **Input:** User presses Mic button (Push-to-Talk) or triggers the configurable Wake Word ("Hey Jarvis", "Computer", etc.).
-2. **Audio Capture:** In Electron/Web, `MediaRecorder` captures audio as Opus/WebM or AAC/MP4. On Android, `RecognizerIntent` or `AudioRecord` handles microphone input.
-3. **STT:** Audio buffer is base64-encoded and sent to `/stt`. The Cloudflare Worker invokes `gemini-3.8-flash` to transcribe verbatim while preserving the source language.
-4. **Context Assembly:**
+1. **Input:** User presses Mic button (Push-to-Talk via `Alt+M` or `Ctrl+Space`) or triggers the configurable Wake Word ("Hey Jarvis", "Computer", etc.).
+2. **Wake Detection & Keyword Spotting:** `apps/ui/lib/offline-wake-detector.ts` uses continuous transcript-based keyword spotting via the Web Speech API (`SpeechRecognition`). Transcripts are normalized and evaluated locally on-device. When inline directives follow the wake phrase, the command transcript bypasses cloud STT for immediate execution.
+3. **Echo Shield Gate:** During active TTS playback, recognition is suspended (`suspend()`) and remains paused through a 1.5-second acoustic drain grace period (`resumeWithGrace(1500)`), preventing self-triggering from speaker audio.
+4. **Audio Capture:** When user commands are spoken after greeting, `MediaRecorder` captures audio as Opus/WebM or AAC/MP4 as a fallback. On Android, `RecognizerIntent` or `AudioRecord` handles microphone input.
+5. **STT:** Audio buffer is base64-encoded and sent to `/stt`. The Cloudflare Worker invokes `gemini-3.8-flash` to transcribe verbatim while preserving the source language.
+6. **Context Assembly:**
    - Vector recall queries Supabase RPC `match_irfan_memories` via `gemini-embedding-001` (768 dimensions).
    - Recent conversation summaries (`conversation_summaries`) are queried for continuity.
    - Active persona prompt (built-in or custom) and selected language instructions are injected.
-5. **LLM Generation:** Request streams from `gemini-3.8-flash` over Server-Sent Events (`/chat` SSE stream).
-6. **TTS Synthesis:** Generated text is forwarded to `/tts`. The Worker queries the Gemini Interactions API (`gemini-3.8-flash-tts`) specifying the persona's designated voice (`Puck`, `Kore`, `Charon`, `Aoede`, `Fenrir`, or `Zephyr`).
-7. **Audio Playback:** Raw 24kHz PCM is packaged into a standard RIFF WAV buffer in client memory and played through the Web Audio API.
+7. **LLM Generation:** Request streams from `gemini-3.8-flash` over Server-Sent Events (`/chat` SSE stream).
+8. **TTS Synthesis:** Generated text is forwarded to `/tts`. The Worker queries the Gemini Interactions API (`gemini-3.8-flash-tts`) specifying the persona's designated voice (`Puck`, `Kore`, `Charon`, `Aoede`, `Fenrir`, or `Zephyr`).
+9. **Audio Playback:** Raw 24kHz PCM is packaged into a standard RIFF WAV buffer in client memory and played through the Web Audio API.
 
 ### B. Windows Automation & Desktop Tools
 - **Tool Catalog:** 22 specialized tools defined in `apps/desktop/src/local-tools.ts` covering window control, running processes, volume, brightness, display, filesystem navigation, and UI automation.
+- **Truthful Status Reporting:** Browser automation (`browser-service.ts` and `agent-loop.ts`) inspects observable browser state (`playing`, `opened`, `searched`, `error`) and truthfully reports whether YouTube playback started or whether manual interaction is required due to Chrome autoplay policies.
 - **Planner vs Executor:** Cloudflare Worker `/tools/plan` acts strictly as an AI planner—it identifies tool name and validated arguments from user text. It never executes code directly.
 - **Local Dispatcher:** Electron IPC handler `local:propose` inspects the tool policy (`SAFE`, `CONFIRM`, `BLOCKED`). Reversible or safe tools run immediately; sensitive actions display an interactive confirmation card.
 - **PowerShell Interop:** Executed via `apps/desktop/scripts/tools.ps1` through a dedicated hidden PowerShell subprocess with strict timeout limits and JSON stdin/stdout pipes.
 
-### C. Android Native Bridge
+### C. Task Scheduling & Background Execution
+- **Task Storage:** Supabase `jarvis_scheduled_tasks` stores task definitions with recurrence rules, timezones, and action types (`reminder`, `tool`, `app_launch`, `video`, `chat`, `custom`).
+- **Due-Task Discovery:** Cloudflare Worker endpoint `/tasks/due?target=pc` exposes tasks ready for local execution.
+- **Idempotent Claiming:** Desktop calls `/tasks/:id/claim` with a time-bucketed idempotency key (`taskId:YYYY-MM-DDTHH:MM`) before execution, preventing double execution from overlapping polls or cron triggers.
+- **Desktop Poller:** Electron main process (`startSchedulerPoller`) polls every 60 seconds using DPAPI-secured credentials, dispatches native desktop notifications for reminders, and routes tool directives to the renderer via IPC.
+- **Completion Reporting:** Device reports outcome to `/tasks/:id/complete`, which triggers Supabase RPC `jarvis_advance_schedule` to compute `next_run_at` for recurring tasks.
+
+### D. Android Native Bridge
 - **WebView Isolation:** Next.js static assets load securely over `https://appassets.androidplatform.net/` using `WebViewAssetLoader`. Local file URLs and arbitrary origins are blocked.
 - **JavascriptInterface:** `window.IrfanNative.post(json)` exposes bi-directional communication between JavaScript and Kotlin.
 - **Native Tools:** 14 device tools including app launching, system panels, volume, flashlight, DND toggle, dialer, SMS composer, notification reading, notification dismissal, screen accessibility clicking, and UI element inspection.
