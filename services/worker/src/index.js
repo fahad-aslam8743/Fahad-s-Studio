@@ -249,13 +249,6 @@ export default {async scheduled(_event,env){
   db(env,'jarvis_remote_tasks','DELETE','?expires_at=lt.'+encodeURIComponent(new Date(Date.now()-86400000).toISOString())),
   db(env,'jarvis_api_rate','DELETE','?bucket=lt.'+encodeURIComponent(new Date(Date.now()-86400000).toISOString()))
  ]);
- try{
-  const dueTasks=await db(env,'jarvis_scheduled_tasks','GET','?status=eq.active&next_run_at=lte.'+encodeURIComponent(now)+'&limit=10');
-  for(const t of (dueTasks||[])){
-   await db(env,'jarvis_task_history','POST','',{task_id:t.id,status:'completed',result:{triggered_by:'cloud_cron',title:t.title,action:t.action_type}});
-   await fetch(env.SUPABASE_URL+'/rest/v1/rpc/jarvis_advance_schedule',{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY,'Content-Type':'application/json'},body:JSON.stringify({p_task_id:t.id})}).catch(()=>{});
-  }
- }catch{}
 },async fetch(request,env,ctx){const url=new URL(request.url),origin=request.headers.get('origin')||'';if(!allowed(origin))return json({error:'Origin denied'},403);const cors={'access-control-allow-origin':origin||'irfan://studio','access-control-allow-headers':'Authorization, Content-Type','access-control-allow-methods':'GET, POST, PUT, DELETE, OPTIONS','vary':'origin'};if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors});if(url.pathname==='/health')return json({ok:true,name:"Irfan's Studio",backend:'Cloudflare Workers'},200,origin);if(url.pathname==='/email/oauth/callback')return gmailCallback(request,env);
 const missingSecrets=[];
 if(!env.APP_TOKEN)missingSecrets.push('APP_TOKEN');
@@ -346,9 +339,11 @@ if(url.pathname==='/tasks/due'&&request.method==='GET'){
   const target=url.searchParams.get('target')||'any';
   const allowedTargets=['any','pc','android','cloud'];
   const tgt=allowedTargets.includes(target)?target:'any';
+  const targetFilter=tgt==='any'?'':'or(execution_target.eq.any,execution_target.eq.'+tgt+')';
+  const leaseFilter='or(claim_expires_at.is.null,claim_expires_at.lte.'+now+')';
+  const andFilters=tgt==='any'?'('+leaseFilter+')':'('+targetFilter+','+leaseFilter+')';
   const qs='?status=eq.active&next_run_at=lte.'+encodeURIComponent(now)
-    +(tgt!=='any'?'&or=(execution_target.eq.any,execution_target.eq.'+tgt+')':'')
-    +'&or=(claim_expires_at.is.null,claim_expires_at.lte.'+encodeURIComponent(now)+')'
+    +'&and='+encodeURIComponent(andFilters)
     +'&order=next_run_at.asc&limit=20';
   const dueTasks=await db(env,'jarvis_scheduled_tasks','GET',qs).catch(()=>[]);
   return json(dueTasks||[],200,origin);
