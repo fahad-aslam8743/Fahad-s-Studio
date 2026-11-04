@@ -5,6 +5,7 @@ import {attachLocalAgent} from './local-agent';
 import {attachWhatsApp} from './whatsapp';
 import {getBrowserService} from './browser-service';
 import {DurableOutbox, type OutboxPayload} from './scheduler-outbox';
+import {getTaskRunId, getTaskAttemptId} from './scheduler-identity';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
@@ -198,17 +199,6 @@ async function startSchedulerPoller(credentialsFile: string): Promise<void> {
   const outbox = new DurableOutbox(outboxFile);
   await outbox.load();
 
-  function getTaskRunId(task: any): string {
-    const runTs = task.next_run_at ? new Date(task.next_run_at).toISOString() : new Date().toISOString();
-    return `${task.id}:${runTs}`;
-  }
-
-  function getTaskAttemptId(task: any): string {
-    const runId = getTaskRunId(task);
-    const attempt = Number(task.retry_count || 0);
-    return `${runId}:attempt:${attempt}`;
-  }
-
   async function loadCredentials(): Promise<{apiUrl: string; token: string} | null> {
     try {
       if (!safeStorage.isEncryptionAvailable()) return null;
@@ -239,7 +229,7 @@ async function startSchedulerPoller(credentialsFile: string): Promise<void> {
           void diagnosticLog('scheduler', `Reconciled completion report for task ${item.taskId} attempt ${item.attemptId}`);
         } else if (res.status === 400 || res.status === 404 || res.status === 409) {
           // Check if server indicated a permanent final rejection
-          const permanent = compData?.already_completed || compData?.reason === 'stale_execution' || compData?.reason === 'device_mismatch' || compData?.reason === 'execution_not_found';
+          const permanent = compData?.already_completed || ['stale_execution', 'lease_expired', 'device_mismatch', 'execution_not_found'].includes(compData?.reason);
           if (permanent) {
             await outbox.remove(item.id);
             void diagnosticLog('scheduler', `Permanent completion outcome for task ${item.taskId}: ${compData?.reason || 'already completed'}`);
@@ -467,7 +457,7 @@ async function startSchedulerPoller(credentialsFile: string): Promise<void> {
             await outbox.remove(attemptId);
             void diagnosticLog('scheduler', `Task ${task.id} attempt ${attemptId} completion acknowledged by worker`);
           } else if (compRes.status === 400 || compRes.status === 404 || compRes.status === 409) {
-            const permanent = compData?.already_completed || compData?.reason === 'stale_execution' || compData?.reason === 'device_mismatch';
+            const permanent = compData?.already_completed || ['stale_execution', 'lease_expired', 'device_mismatch', 'execution_not_found'].includes(compData?.reason);
             if (permanent) {
               await outbox.remove(attemptId);
             } else {
