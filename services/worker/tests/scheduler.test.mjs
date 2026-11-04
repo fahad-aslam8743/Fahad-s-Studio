@@ -17,6 +17,7 @@ let taskHistory = [];
 let originalFetch;
 let mockRpcFailure = false;
 let mockMalformedRpc = false;
+let fetchCalls = [];
 
 function setupSupabaseMock() {
   originalFetch = globalThis.fetch;
@@ -24,8 +25,10 @@ function setupSupabaseMock() {
   taskHistory = [];
   mockRpcFailure = false;
   mockMalformedRpc = false;
+  fetchCalls = [];
 
   globalThis.fetch = async (url, opt = {}) => {
+    fetchCalls.push({url:String(url),method:opt.method||'GET',body:opt.body||null});
     const u = new URL(String(url));
     const pathname = u.pathname;
     const method = opt.method || 'GET';
@@ -969,5 +972,34 @@ describe('Scheduler RPC — Retries, Stale Prevention & Recurrence Integrity', (
     const newNextRun = new Date(task.next_run_at).getTime();
     const expectedDiff = 86400000; // 24 hours
     assert.equal(newNextRun - initialDue.getTime(), expectedDiff, 'Daily task must advance by exactly 24 hours');
+  });
+});
+
+
+describe('Worker scheduler ownership and due-query filters', () => {
+  beforeEach(() => setupSupabaseMock());
+  afterEach(() => teardownSupabaseMock());
+
+  test('scheduled housekeeping never marks scheduler tasks completed or advances recurrence', async () => {
+    if (!worker) return;
+    await worker.default.scheduled({}, makeEnv(), {});
+    assert.equal(fetchCalls.some(call => call.url.includes('/jarvis_scheduled_tasks')), false);
+    assert.equal(fetchCalls.some(call => call.url.includes('/jarvis_task_history')), false);
+    assert.equal(fetchCalls.some(call => call.url.includes('/rpc/jarvis_advance_schedule')), false);
+  });
+
+  test('due-task query combines target and lease predicates in one PostgREST AND expression', async () => {
+    if (!worker) return;
+    const response = await worker.default.fetch(makeRequest('GET', '/tasks/due?target=pc'), makeEnv(), {});
+    assert.equal(response.status, 200);
+    const request = fetchCalls.find(call => call.url.includes('/jarvis_scheduled_tasks'));
+    assert.ok(request, 'expected a Supabase scheduled-task query');
+    const parsed = new URL(request.url);
+    const andFilter = parsed.searchParams.get('and');
+    assert.ok(andFilter, 'target and lease filters must be combined using PostgREST and=');
+    assert.match(andFilter, /execution_target\.eq\.any/);
+    assert.match(andFilter, /execution_target\.eq\.pc/);
+    assert.match(andFilter, /claim_expires_at\.is\.null/);
+    assert.match(andFilter, /claim_expires_at\.lte\./);
   });
 });
