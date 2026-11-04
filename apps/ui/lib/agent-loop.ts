@@ -50,7 +50,13 @@ function formatHumanPlanResult(toolName: string, args: any, result: any): string
   }
   if (toolName === 'open_settings') return `Opened Windows settings.`;
   if (toolName === 'browser_open') return `Opened the requested page in Chrome.`;
-  if (toolName === 'youtube_play') return `Playing your video on YouTube.`;
+  if (toolName === 'youtube_play') {
+    // Report truthfully based on what browser-service actually did
+    if (result?.status === 'playing') return `Now playing ${result?.title || args?.query || 'the video'} on YouTube.`;
+    if (result?.status === 'opened') return `Opened ${result?.title || args?.query || 'a video'} on YouTube, but autoplay may have been blocked. Please click play.`;
+    if (result?.status === 'searched') return `Opened YouTube search results for ${args?.query || 'your query'}. Please select a video to play.`;
+    return `Opened YouTube for ${args?.query || 'your request'}.`;
+  }
   if (toolName === 'get_current_time') return `The current time is ${new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}.`;
   if (typeof result === 'string') return cleanSpeech(result).slice(0, 150);
   if (result?.status === 'opened') return `Opened ${result.app || 'the application'}.`;
@@ -106,11 +112,32 @@ export async function runAgentLoop(ctx: AgentContext): Promise<AgentStepResult> 
     log(`[MEDIA: ACQUIRING YOUTUBE STREAM FOR "${song}"]`);
     const result = await propose('youtube_play', {query: song});
     const videoTitle = result.title || song;
-    log(`[MEDIA: PLAYBACK CONFIRMED: "${videoTitle}"]`);
+    log(`[MEDIA: PLAYBACK STATUS: ${result.status || 'unknown'}]`);
+
+    // Report truthfully based on what browser-service actually accomplished
+    let finalReply: string;
+    let spokenReply: string;
+    if (result.status === 'playing') {
+      finalReply = `Now playing "${videoTitle}" on YouTube.`;
+      spokenReply = `Now playing ${videoTitle} on YouTube.`;
+    } else if (result.status === 'opened') {
+      finalReply = `Opened "${videoTitle}" on YouTube. Autoplay may be blocked — please click play.`;
+      spokenReply = `Opened ${videoTitle} on YouTube. Please click play if it doesn't start automatically.`;
+    } else if (result.status === 'searched') {
+      finalReply = `Opened YouTube search results for "${song}". Please select a video.`;
+      spokenReply = `Here are the YouTube results for ${song}. Please select a video to play.`;
+    } else if (result.error) {
+      finalReply = `Could not play "${song}" on YouTube. ${result.error}`;
+      spokenReply = `Sorry, I couldn't play ${song} on YouTube.`;
+    } else {
+      finalReply = `Opened YouTube for "${song}".`;
+      spokenReply = `Opened YouTube for ${song}.`;
+    }
+
     return {
       done: true,
-      finalReply: `Now playing "${videoTitle}" on YouTube.`,
-      spokenReply: `Now playing ${videoTitle} on YouTube.`,
+      finalReply,
+      spokenReply,
       toolExecuted: 'youtube_play',
       toolResult: result
     };

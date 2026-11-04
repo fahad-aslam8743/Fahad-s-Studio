@@ -17,6 +17,7 @@ import {isAndroid, nativeCall} from '../lib/android';
 import {AudioStreamer} from '../lib/audio-streamer';
 import {SpeechChunker} from '../lib/speech-chunker';
 import {runAgentLoop, cleanSpeech} from '../lib/agent-loop';
+import {AudioStateMachine} from '../lib/audio-state-machine';
 
 const Core = dynamic(() => import('../components/Core'), {ssr: false});
 type Line = {role: 'user' | 'assistant'; content: string; time?: string};
@@ -160,6 +161,26 @@ export default function Home() {
   const recentSpokenPhrasesRef = useRef<string[]>([]);
   const isAudioPlayingRef = useRef<boolean>(false);
   const lastSpeechEndTimeRef = useRef<number>(0);
+  const [audioStateName, setAudioStateName] = useState<string>('Listening');
+  const [wakePhrase, setWakePhrase] = useState<string>('Hey Jarvis');
+  const audioStateMachineRef = useRef<AudioStateMachine | null>(null);
+  if (!audioStateMachineRef.current) {
+    audioStateMachineRef.current = new AudioStateMachine({
+      commandTimeoutMs: 6000,
+      drainDurationMs: 900,
+      cooldownMs: 2000,
+      onStateTransition: (from, to, turnId) => {
+        setAudioStateName(audioStateMachineRef.current?.getHumanStatus(to) || to);
+        addTelemetry(`[AUDIO STATE: ${from} -> ${to} (${turnId.slice(-6)})]`);
+        if (typeof window !== 'undefined' && (window as any).irfan?.lifecycleUpdateStatus) {
+          void (window as any).irfan.lifecycleUpdateStatus(audioStateMachineRef.current?.getHumanStatus(to) || to);
+        }
+      },
+      onTimeout: (turnId) => {
+        addTelemetry(`[WAKE SENSOR: COMMAND WINDOW TIMED OUT (${turnId.slice(-6)})]`);
+      }
+    });
+  }
 
   function changePersona(p: string) {
     setPersona(p);
@@ -262,6 +283,7 @@ export default function Home() {
           isAudioPlayingRef.current = false;
           lastSpeechEndTimeRef.current = Date.now();
           setSpeaking(false);
+          audioStateMachineRef.current?.onSpeakingComplete();
         },
         onError: (err) => console.warn('[AudioStreamer error]', err)
       });
@@ -367,6 +389,7 @@ export default function Home() {
           isAudioPlayingRef.current = false;
           lastSpeechEndTimeRef.current = Date.now();
           setSpeaking(false);
+          audioStateMachineRef.current?.onSpeakingComplete();
         }
       };
 
@@ -376,6 +399,7 @@ export default function Home() {
           isAudioPlayingRef.current = false;
           lastSpeechEndTimeRef.current = Date.now();
           setSpeaking(false);
+          audioStateMachineRef.current?.onSpeakingComplete();
         }
       };
 
@@ -518,6 +542,7 @@ export default function Home() {
         isAudioPlayingRef.current = false;
         lastSpeechEndTimeRef.current = Date.now();
         setSpeaking(false);
+        audioStateMachineRef.current?.onSpeakingComplete();
         onEnd?.();
       };
 
@@ -533,6 +558,7 @@ export default function Home() {
       isAudioPlayingRef.current = false;
       lastSpeechEndTimeRef.current = Date.now();
       setSpeaking(false);
+      audioStateMachineRef.current?.onSpeakingComplete();
       onEnd?.();
     }
   }
@@ -552,6 +578,7 @@ export default function Home() {
     }
     utterance.current?.pause();
     utterance.current = null;
+    audioStateMachineRef.current?.interrupt();
     setSpeaking(false);
     setBusy(false);
     addTelemetry('[SPEECH INTERRUPTED]');
@@ -805,8 +832,13 @@ export default function Home() {
   // Handle command speech recorded via offline wake detector
   async function handleWakeCommandAudio(blob: Blob) {
     if (!token && !mobilePaired) return;
-    // Hard Echo Gate: Never transcribe if audio playing or ended within 1200ms
-    if (isAudioPlayingRef.current || Date.now() - lastSpeechEndTimeRef.current < 1200) {
+    const sm = audioStateMachineRef.current;
+    // Hard Echo Gate: Never transcribe if audio playing or in audio drain
+    if (sm && !sm.canAcceptMicrophoneInput()) {
+      console.warn('[ECHO GATE: Discarded audio recorded during or immediately after assistant speech]');
+      return;
+    }
+    if (isAudioPlayingRef.current || Date.now() - lastSpeechEndTimeRef.current < 900) {
       console.warn('[ECHO GATE: Discarded audio recorded during or immediately after assistant speech]');
       return;
     }
@@ -825,47 +857,32 @@ export default function Home() {
         const heard = res.text.trim();
         if (!heard || heard.length < 2) return;
 
-        const normHeard = heard.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-        // 1. HARD ANTI-ECHO GATE A: Drop if matches any known self-greeting phrase
-        const selfPhrases = [
-          'yesiamlistening',
-          'iamlistening',
-          'listening',
-          'onlinesir',
-          'howmayiassistyou',
-          'atyourservice',
-          'jarvisonline',
-          'whatcanidoforyou',
-          'processing',
-          'hellohowmayiassist'
-        ];
-        if (selfPhrases.some(p => normHeard.includes(p) || (normHeard.length >= 6 && p.includes(normHeard)))) {
-          console.warn('[ECHO GATE: Rejected self-greeting echo]', heard);
+        // 1. Rigorous State Machine Echo Defense
+        if (sm?.isEcho(heard)) {
+          console.warn('[ECHO GATE: Rejected echo of assistant speech or acknowledgment]', heard);
           return;
         }
 
-        // 2. HARD ANTI-ECHO GATE B: Drop if matches any recently spoken assistant text from last 60 seconds
-        const matchesRecent = recentSpokenPhrasesRef.current.some(recent => {
-          if (recent.length < 4) return false;
-          return normHeard.includes(recent) || recent.includes(normHeard) ||
-                 (normHeard.length >= 8 && recent.includes(normHeard.slice(0, 10)));
-        });
-        if (matchesRecent) {
-          console.warn('[ECHO GATE: Rejected recent assistant speech echo]', heard);
-          return;
-        }
+        // 2. Extract directive and parse wake phrase
+        const parsed = sm ? sm.parseTranscript(heard, wakePhrase) : {hasWakeWord: false, cleanCommand: heard, isWakeOnly: false};
 
-        // 3. Extract the directive (strip leading wake word prefixes)
-        const cleanDirective = heard.replace(/^(?:hey\s+jarvis|okay\s+jarvis|jarvis|computer|hello\s+jarvis)[,\s]*/i, '').trim();
-
-        if (!cleanDirective || cleanDirective.length < 2) {
-          // User said wake phrase only; remain in standby without looping self-speech
+        if (parsed.isWakeOnly) {
+          // User said wake phrase only; remain in standby for instruction
           addTelemetry('[WAKE SENSOR: LISTENING FOR DIRECTIVE]');
           return;
         }
 
-        // User spoke a valid directive (e.g. "open calculator" or "what time is it")
+        const cleanDirective = parsed.cleanCommand;
+        if (!cleanDirective || cleanDirective.length < 2) {
+          addTelemetry('[WAKE SENSOR: LISTENING FOR DIRECTIVE]');
+          return;
+        }
+
+        if (sm) {
+          sm.onCommandSubmitted(cleanDirective);
+        }
+
+        // User spoke a valid directive
         addTelemetry(`[VOICE DIRECTIVE DISPATCHED: "${cleanDirective}"]`);
         void send(cleanDirective);
       }
@@ -985,9 +1002,60 @@ export default function Home() {
       mic();
     });
 
+    // Windows Power and Hardware Microphone Lifecycle Listeners
+    const cleanupSuspend = (window as any).irfan?.onPowerSuspend?.(() => {
+      audioStateMachineRef.current?.onSystemSuspend();
+      addTelemetry('[WINDOWS: SLEEP DETECTED - SUSPENDING AUDIO]');
+    });
+    const cleanupResume = (window as any).irfan?.onPowerResume?.(() => {
+      audioStateMachineRef.current?.onSystemResume();
+      addTelemetry('[WINDOWS: WAKE DETECTED - REARMING AUDIO]');
+    });
+    const cleanupMicToggled = (window as any).irfan?.onMicToggled?.((d: {enabled: boolean}) => {
+      audioStateMachineRef.current?.setMuted(!d.enabled);
+      addTelemetry(`[HARDWARE MIC: ${d.enabled ? 'ACTIVE' : 'MUTED'}]`);
+    });
+
+    // Scheduler IPC listeners: display reminders in HUD and report action execution
+    const cleanupSchedulerReminder = (window as any).irfan?.onSchedulerReminder?.((task: any) => {
+      const reminderTitle = task?.title || 'Scheduled Reminder';
+      const msg = task?.action_config?.message || reminderTitle;
+      addTelemetry(`[SCHEDULER REMINDER] ${reminderTitle}`);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: 'rem_' + Date.now(),
+          role: 'assistant',
+          content: `⏰ **Scheduled Reminder:** ${msg}`,
+          timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
+        }
+      ]);
+    });
+
+    const cleanupSchedulerAction = (window as any).irfan?.onSchedulerAction?.(async (data: any) => {
+      const task = data?.task;
+      const executionId = data?.executionId || '';
+      if (!task?.id) return;
+      try {
+        const prompt = task.action_config?.prompt || task.action_config?.message || task.title;
+        addTelemetry(`[SCHEDULER ACTION] Processing: "${prompt}"`);
+        if (prompt) {
+          await submit(prompt);
+        }
+        (window as any).irfan?.reportSchedulerResult?.(task.id, executionId, true, 'Directive executed in HUD');
+      } catch (err: any) {
+        (window as any).irfan?.reportSchedulerResult?.(task.id, executionId, false, undefined, String(err?.message || err));
+      }
+    });
+
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       cleanupGlobalPtt?.();
+      cleanupSuspend?.();
+      cleanupResume?.();
+      cleanupMicToggled?.();
+      cleanupSchedulerReminder?.();
+      cleanupSchedulerAction?.();
       stop.current?.abort();
       streamerRef.current?.stop();
     };
@@ -1193,30 +1261,40 @@ export default function Home() {
                 speaking ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse' :
                 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
               }`}>
-                {busy ? 'PROCESSING' : recording ? 'LISTENING' : speaking ? 'SPEAKING' : 'STANDBY'}
+                {audioStateName.toUpperCase()}
               </span>
             </div>
 
             {/* Always-Listening Wake Word Hub */}
             {!isMobileApp && (
               <WakeWord
-                paused={speaking}
+                paused={speaking || Boolean(audioStateMachineRef.current?.isSpeakingOrDraining())}
+                currentPhrase={wakePhrase}
+                onPhraseChange={p => setWakePhrase(p)}
                 onCommand={command => void send(command)}
                 onCommandAudio={blob => void handleWakeCommandAudio(blob)}
                 onGreeting={(startCapture) => {
-                  addTelemetry('[WAKE SENSOR TRIGGERED: "HEY JARVIS"]');
+                  const sm = audioStateMachineRef.current;
+                  const wakeRes = sm?.onWakeDetected();
+                  if (wakeRes && !wakeRes.accepted) {
+                    console.warn('[WAKE REJECTED BY STATE MACHINE: ALREADY ACTIVE, COOLDOWN, OR DRAINING]');
+                    return;
+                  }
+                  addTelemetry(`[WAKE SENSOR TRIGGERED: "${wakePhrase.toUpperCase()}" (${wakeRes?.turnId.slice(-6) || 'turn'})]`);
                   if (typeof window !== 'undefined') {
                     if ((window as any).irfan?.maximizeWindow) void (window as any).irfan.maximizeWindow();
                     if ((window as any).irfan?.showAndFocus) void (window as any).irfan.showAndFocus();
                   }
-                  // Professional spoken acknowledgment
-                  const greetings = ['Yes, I am listening.', 'Online, sir.', 'At your service.'];
+                  // Exact Case A/C: short polite acknowledgment
+                  const greetings = ['Yes, sir?', 'Online, sir.', 'Yes, I am listening.'];
                   const ack = greetings[Math.floor(Math.random() * greetings.length)];
+                  sm?.onSpeakingStart(ack, wakeRes?.turnId);
                   void playWithCallback(ack, () => {
-                    // Allow speaker decay / room reverberation 300ms to settle before microphone opens
+                    sm?.onAcknowledgmentComplete(wakeRes?.turnId);
+                    // Allow speaker decay / room reverberation 200ms to settle before microphone opens
                     setTimeout(() => {
                       startCapture?.();
-                    }, 300);
+                    }, 200);
                   });
                 }}
                 language={language === 'ur' ? 'ur-PK' : language === 'hi' ? 'hi-IN' : 'en-US'}
@@ -1414,8 +1492,16 @@ export default function Home() {
               <select className="input w-full text-xs mt-1" value={language} onChange={e => setLanguage(e.target.value)}>
                 <option value="auto">Auto-Detect</option>
                 <option value="en">English</option>
-                <option value="ur">Urdu</option>
-                <option value="hi">Hindi</option>
+                <option value="ur">Urdu (اردو)</option>
+                <option value="ur-latn">Roman Urdu</option>
+                <option value="hi">Hindi (हिंदी)</option>
+                <option value="ar">Arabic (العربية)</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="zh">Chinese</option>
+                <option value="ja">Japanese</option>
+                <option value="ru">Russian</option>
               </select>
             </label>
 
