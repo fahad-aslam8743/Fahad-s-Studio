@@ -1,4 +1,12 @@
 packages:
-  - "apps/*"
-  - "packages/*"
-  - "services/*"
+  - apps/*
+  - packages/*
+  - services/*
+
+ignoredBuiltDependencies:
+  - '@google/genai'
+  - electron
+  - electron-winstaller
+  - esbuild
+  - protobufjs
+  - puppeteer

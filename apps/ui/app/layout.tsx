@@ -1,1 +1,12 @@
-import './globals.css';export const metadata={title:"Irfan's Studio | JARVIS",description:'A personal desktop AI assistant'};export default function Layout({children}:{children:React.ReactNode}){return <html lang="en"><body>{children}</body></html>}
+import './globals.css';
+export const metadata = {
+  title: "Irfan's Studio | JARVIS",
+  description: 'A personal desktop AI assistant'
+};
+export default function Layout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning>{children}</body>
+    </html>
+  );
+}

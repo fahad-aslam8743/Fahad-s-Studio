@@ -1,4 +1,16 @@
 name = "fahad-s-studio"
+account_id = "54be6cc8b4c78a417dc4eecb3cd4fc56"
 main = "src/index.js"
 compatibility_date = "2026-10-18"
 workers_dev = true
+
+# Supabase project URL is public configuration (not a credential).
+[vars]
+SUPABASE_URL = "https://iqqszfuyyhagdovfzzqd.supabase.co"
+
+# Cloudflare Workers Builds invokes "wrangler preview" for preview builds.
+# This empty block is required by Wrangler v4 for that command.
+[previews]
+
+[triggers]
+crons = ["0 3 * * *"]
