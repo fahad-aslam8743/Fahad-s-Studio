@@ -1,4 +1,5 @@
 name = "fahad-s-studio"
+account_id = "54be6cc8b4c78a417dc4eecb3cd4fc56"
 main = "src/index.js"
 compatibility_date = "2026-10-18"
 workers_dev = true
